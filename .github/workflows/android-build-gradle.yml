@@ -1,0 +1,148 @@
+name: Build Android APK (Gradle)
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        api-level: 34
+        build-tools-version: '34.0.0'
+        ndk-version: '26.1.10909125'
+
+    - name: Grant execute permission for gradlew
+      run: |
+        if [ -f "gradlew" ]; then
+          chmod +x gradlew
+        fi
+
+    - name: Validate Gradle wrapper
+      run: |
+        if [ ! -f "gradlew" ]; then
+          echo "Gradle wrapper not found, creating one..."
+          mkdir -p gradle/wrapper
+          curl -L https://services.gradle.org/distributions/gradle-8.4-bin.zip -o gradle.zip
+          unzip -q gradle.zip
+          mv gradle-8.4/gradle/wrapper/* gradle/wrapper/
+          echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip" > gradle/wrapper/gradle-wrapper.properties
+          cat > gradlew << 'EOF'
+#!/bin/bash
+exec gradle "$@"
+EOF
+          chmod +x gradlew
+          rm -rf gradle-8.4 gradle.zip
+        fi
+
+    - name: Cache Gradle dependencies
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: wrapper
+
+    - name: Create local.properties
+      run: |
+        echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+        echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> local.properties
+
+    - name: Build Debug APK
+      run: |
+        if [ -f "gradlew" ]; then
+          ./gradlew assembleDebug --no-daemon --stacktrace
+        else
+          gradle assembleDebug --stacktrace
+        fi
+      continue-on-error: true
+
+    - name: Build Release APK
+      if: success()
+      run: |
+        if [ -f "gradlew" ]; then
+          ./gradlew assembleRelease --no-daemon --stacktrace
+        else
+          gradle assembleRelease --stacktrace
+        fi
+      continue-on-error: true
+
+    - name: Create Keystore for signing
+      if: success() && github.event_name == 'push'
+      run: |
+        keytool -genkey -v -keystore app.keystore -keyalg RSA -keysize 2048 -validity 10000 -alias app -storepass android123 -keypass android123 -dname "CN=APNotes, O=APNotes, L=APNotes, S=APNotes, C=US"
+
+    - name: Sign APK
+      if: success() && github.event_name == 'push'
+      run: |
+        find . -name "*release-unsigned.apk" -type f | while read apk; do
+          if [ -f "app.keystore" ]; then
+            jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore app.keystore -storepass android123 -keypass android123 "$apk"
+            filename=$(basename "$apk")
+            output="${filename%-unsigned.apk}.apk"
+            $ANDROID_SDK_ROOT/build-tools/34.0.0/zipalign -v 4 "$apk" "signed_$output"
+          fi
+        done
+        find . -name "*debug.apk" -type f | while read apk; do
+          if [ -f "app.keystore" ]; then
+            filename=$(basename "$apk")
+            jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore app.keystore -storepass android123 -keypass android123 "$apk"
+          fi
+        done
+
+    - name: Find APK files
+      id: find_apks
+      run: |
+        find . -name "*.apk" -type f | grep -E "(debug|release)" | head -20 > apk_list.txt
+        cat apk_list.txt
+
+    - name: Upload APK artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: android-apk-artifacts
+        path: |
+          **/build/outputs/apk/**/*.apk
+          signed_*.apk
+        retention-days: 30
+        if-no-files-found: warn
+
+    - name: Create GitHub Release
+      if: success() && startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          **/build/outputs/apk/**/*.apk
+          signed_*.apk
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.AP_NOTES_APK }}
+
+    - name: Upload to artifacts (Debug)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          build/
+          **/build/outputs/
+        retention-days: 7
+        if-no-files-found: ignore
