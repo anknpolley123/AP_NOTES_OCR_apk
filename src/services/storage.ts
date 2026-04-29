@@ -11,6 +11,8 @@ export interface Note {
   ownerId?: string;
   collaborators?: string[];
   type?: 'note' | 'word' | 'excel' | 'ppt' | 'draft' | 'scan';
+  pageTemplate?: 'plain' | 'lined' | 'grid' | 'dots';
+  tags?: string[];
 }
 
 export interface Folder {
@@ -19,7 +21,7 @@ export interface Folder {
   createdAt: number;
 }
 
-export const saveNote = async (text: string, title: string = "Untitled Note", folderId?: string, pinned: boolean = false, type: Note['type'] = 'note') => {
+export const saveNote = async (text: string, title: string = "Untitled Note", folderId?: string, pinned: boolean = false, type: Note['type'] = 'note', metadata?: Partial<Note>) => {
   const notesStr = localStorage.getItem('notes');
   const notes: Note[] = notesStr ? JSON.parse(notesStr) : [];
   notes.unshift({ 
@@ -30,12 +32,13 @@ export const saveNote = async (text: string, title: string = "Untitled Note", fo
     folderId,
     isDeleted: false,
     pinned,
-    type
+    type,
+    ...metadata
   });
   localStorage.setItem('notes', JSON.stringify(notes));
 };
 
-export const updateNote = async (id: string, text: string, title: string, folderId?: string, pinned?: boolean, type?: Note['type']) => {
+export const updateNote = async (id: string, text: string, title: string, folderId?: string, pinned?: boolean, type?: Note['type'], metadata?: Partial<Note>) => {
   const notesStr = localStorage.getItem('notes');
   if (!notesStr) return;
   const notes: Note[] = JSON.parse(notesStr);
@@ -47,7 +50,8 @@ export const updateNote = async (id: string, text: string, title: string, folder
       title, 
       folderId: folderId ?? notes[index].folderId,
       pinned: pinned ?? notes[index].pinned,
-      type: type ?? notes[index].type
+      type: type ?? notes[index].type,
+      ...metadata
     };
     localStorage.setItem('notes', JSON.stringify(notes));
   }

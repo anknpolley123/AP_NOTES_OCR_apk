@@ -1,5 +1,6 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
+import Fuse from 'fuse.js';
 import { 
   Plus, Camera as CameraIcon, Search, LayoutGrid, Download, 
   Network, Mic, Settings, FolderClosed, MoreVertical, TrendingUp,
@@ -21,6 +22,7 @@ export default function HomeScreen() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [deletedCount, setDeletedCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [joinId, setJoinId] = useState('');
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -151,17 +153,35 @@ export default function HomeScreen() {
   };
 
   const allNotesMerged = [...notes, ...cloudNotes];
+  
+  const filteredNotes = useMemo(() => {
+    let result = allNotesMerged;
 
-  const filteredNotes = allNotesMerged.filter(n => {
-    const matchesSearch = n.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         n.text.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFolder = selectedFolderId ? n.folderId === selectedFolderId : true;
-    return matchesSearch && matchesFolder;
-  }).sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return b.createdAt - a.createdAt;
-  });
+    if (selectedFolderId) {
+      result = result.filter(n => n.folderId === selectedFolderId);
+    }
+
+    if (searchQuery.trim()) {
+      const fuse = new Fuse(result, {
+        keys: [
+          { name: 'title', weight: 0.7 },
+          { name: 'text', weight: 0.3 },
+          { name: 'tags', weight: 0.5 }
+        ],
+        threshold: 0.4,
+        includeScore: true,
+      });
+      result = fuse.search(searchQuery).map(r => r.item);
+    } else {
+      result = result.sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return b.createdAt - a.createdAt;
+      });
+    }
+
+    return result;
+  }, [allNotesMerged, searchQuery, selectedFolderId]);
 
   return (
     <Layout 
@@ -333,7 +353,24 @@ export default function HomeScreen() {
              <TrendingUp className="w-4 h-4 text-blue-500" /> Insight Active
           </div>
           <div className="flex gap-4">
-             <Search className="w-5 h-5 text-[var(--text-muted)] cursor-pointer" />
+             {isSearchVisible ? (
+               <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full animate-in slide-in-from-right-4">
+                  <Search className="w-4 h-4 text-slate-400" />
+                  <input 
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search notes..."
+                    autoFocus
+                    className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-700 uppercase w-32"
+                  />
+                  <button onClick={() => { setIsSearchVisible(false); setSearchQuery(''); }}>
+                    <X className="w-4 h-4 text-slate-400" />
+                  </button>
+               </div>
+             ) : (
+               <Search onClick={() => setIsSearchVisible(true)} className="w-5 h-5 text-[var(--text-muted)] cursor-pointer hover:text-blue-500 transition-colors" />
+             )}
              <TrendingUp className="w-5 h-5 text-[var(--text-muted)] cursor-pointer" />
              <Download onClick={handleExportArchive} className="w-5 h-5 text-[var(--text-muted)] cursor-pointer hover:text-blue-500 transition-colors" />
           </div>

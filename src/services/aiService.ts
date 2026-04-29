@@ -3,11 +3,22 @@ import { GoogleGenAI } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-export const summarizeText = async (text: string): Promise<string> => {
+export interface SummaryOptions {
+  length: 'short' | 'medium' | 'detailed';
+  format: 'bullet points' | 'paragraph';
+}
+
+export const summarizeText = async (text: string, options: SummaryOptions = { length: 'medium', format: 'bullet points' }): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Summarize the following note text concisely. Use bullet points if appropriate. Maintain a professional yet helpful tone.\n\nNote content:\n${text}`,
+      contents: `Summarize the following note text.
+Length: ${options.length}
+Format: ${options.format}
+Maintain a professional yet helpful tone.
+
+Note content:
+${text}`,
     });
     return response.text || "Failed to generate summary.";
   } catch (error) {

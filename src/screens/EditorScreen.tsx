@@ -6,8 +6,9 @@ import {
   FolderClosed, Mic, MicOff, PenTool, Pin, Users, Link as LinkIcon, UserPlus, LogIn, FileSpreadsheet,
   Presentation, Plus, Highlighter, Eraser as EraserIcon, Cloud, MoreHorizontal, BookOpen, 
   MoreVertical, AlignLeft, ChevronDown, Strikethrough, Smile, Scan, FileUp, Settings, Type,
-  ChevronLeft, LayoutGrid, PenLine
+  ChevronLeft, LayoutGrid, PenLine, Settings2, Grid3X3, Minus, Square, Circle, Play, Pause, StopCircle
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -16,7 +17,7 @@ import Layout from '../components/Layout';
 import { saveNote, updateNote, getNotes, softDeleteNote, Note, getFolders, Folder } from '../services/storage';
 import { exportToDocx } from '../services/docxService';
 import { createPDF } from '../services/pdfService';
-import { summarizeText, refineText, extractActions, generateImage } from '../services/aiService';
+import { summarizeText, refineText, extractActions, generateImage, SummaryOptions } from '../services/aiService';
 import { auth, db, loginWithGoogle, createCollaborativeNote, updateCollaborativeNote, joinCollaborativeNote } from '../services/firebaseService';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { saveAs } from 'file-saver';
@@ -53,8 +54,23 @@ export default function EditorScreen() {
   const [fontSize, setFontSize] = useState(12);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showImageGenModal, setShowImageGenModal] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [pageTemplate, setPageTemplate] = useState<'plain' | 'lined' | 'grid' | 'dots'>('plain');
+  const [penColor, setPenColor] = useState('#000000');
+  const [penWidth, setPenWidth] = useState(2);
+  const [highlighterColor, setHighlighterColor] = useState('#fde047');
+  const [highlighterWidth, setHighlighterWidth] = useState(12);
+  const [summaryOptions, setSummaryOptions] = useState<SummaryOptions>({
+    length: 'medium',
+    format: 'bullet points'
+  });
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [showTemplateMenu, setShowTemplateMenu] = useState(false);
+  const [showPenSettings, setShowPenSettings] = useState(false);
+  const [showHighlighterSettings, setShowHighlighterSettings] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
 
   const isCollaborative = id?.startsWith('collab_');
   const currentUser = auth.currentUser;
@@ -207,19 +223,21 @@ export default function EditorScreen() {
       setFolderId(note.folderId);
       setIsPinned(!!note.pinned);
       setType(note.type || 'note');
+      if ((note as any).pageTemplate) setPageTemplate((note as any).pageTemplate);
+      if (note.tags) setTags(note.tags);
       setHistory([note.text]);
       setHistoryIndex(0);
     }
   };
 
   const handleSave = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() && !title.trim()) return;
     setIsSaving(true);
     try {
       if (id) {
-        await updateNote(id, text, title || "Untitled Note", folderId, isPinned, type);
+        await updateNote(id, text, title || "Untitled Note", folderId, isPinned, type, { pageTemplate, tags });
       } else {
-        await saveNote(text, title || "Untitled Note", folderId, isPinned, type);
+        await saveNote(text, title || "Untitled Note", folderId, isPinned, type, { pageTemplate, tags });
       }
       navigate('/');
     } catch (error) {
@@ -480,17 +498,18 @@ export default function EditorScreen() {
       return;
     }
 
+    if (action === 'summarize') {
+      setShowAiMenu(false);
+      setShowSummaryModal(true);
+      return;
+    }
+
     setIsAiProcessing(true);
     setShowAiMenu(false);
     
     try {
       let result = '';
       switch (action) {
-        case 'summarize':
-          setAiStatus('SUMMARIZING CONTENT...');
-          result = await summarizeText(text);
-          updateText(text + "\n\n---\n### AI Summary\n" + result);
-          break;
         case 'refinement':
           setAiStatus('REFINING TEXT...');
           result = await refineText(text);
@@ -502,6 +521,22 @@ export default function EditorScreen() {
           updateText(text + "\n\n---\n### AI Action Items\n" + result);
           break;
       }
+    } catch (error) {
+      console.error(error);
+      alert("AI Service encountered an issue. Please try again.");
+    } finally {
+      setIsAiProcessing(false);
+      setAiStatus('');
+    }
+  };
+
+  const handleSummarize = async () => {
+    setIsAiProcessing(true);
+    setShowSummaryModal(false);
+    try {
+      setAiStatus('SUMMARIZING CONTENT...');
+      const result = await summarizeText(text, summaryOptions);
+      updateText(text + "\n\n---\n### AI Summary (" + summaryOptions.length + ", " + summaryOptions.format + ")\n" + result);
     } catch (error) {
       console.error(error);
       alert("AI Service encountered an issue. Please try again.");
@@ -634,6 +669,17 @@ export default function EditorScreen() {
     }
   };
 
+  const addTag = () => {
+    if (tagInput.trim() && !tags.includes(tagInput.trim())) {
+      setTags([...tags, tagInput.trim()]);
+      setTagInput('');
+    }
+  };
+
+  const removeTag = (tag: string) => {
+    setTags(tags.filter(t => t !== tag));
+  };
+
   const clearSignature = () => {
     sigCanvas.current?.clear();
   };
@@ -681,7 +727,34 @@ export default function EditorScreen() {
             onChange={(e) => setTitle(e.target.value)}
           />
         </div>
+        <div className="hidden sm:flex items-center gap-1 overflow-x-auto no-scrollbar max-w-[200px]">
+          {tags.map(tag => (
+            <span key={tag} className="flex items-center gap-1 px-2 py-1 bg-slate-100 text-[10px] font-bold text-slate-500 rounded-full group">
+              #{tag}
+              <button onClick={() => removeTag(tag)} className="hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          <div className="flex items-center gap-1 ml-2">
+            <input 
+              type="text"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addTag()}
+              placeholder="Add tag..."
+              className="w-16 bg-transparent border-none outline-none text-[10px] font-bold text-slate-400 placeholder:text-slate-300"
+            />
+          </div>
+        </div>
         <div className="flex items-center gap-1">
+          <button 
+            onClick={() => setShowTemplateMenu(!showTemplateMenu)} 
+            className={`p-2 rounded-full transition-colors ${showTemplateMenu ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover:bg-slate-100'}`}
+            title="Page Template"
+          >
+            <Settings2 className="w-5 h-5" />
+          </button>
           <button onClick={() => setIsPreview(!isPreview)} className="p-2 text-slate-700 hover:bg-slate-100 rounded-full transition-colors">
             <BookOpen className="w-5 h-5" />
           </button>
@@ -726,18 +799,82 @@ export default function EditorScreen() {
              <LayoutGrid className="w-5 h-5" />
            </button>
            <button 
-             onClick={() => setActiveTool('pen')}
+             onClick={() => {
+               if (activeTool === 'pen') setShowPenSettings(!showPenSettings);
+               setActiveTool('pen');
+             }}
              className={`p-2 rounded-xl transition-all relative ${activeTool === 'pen' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
            >
-             <PenLine className="w-5 h-5 text-slate-800" />
+             <PenLine className="w-5 h-5" style={{ color: penColor }} />
              {activeTool === 'pen' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
+             
+             {showPenSettings && activeTool === 'pen' && (
+               <div className="absolute top-12 left-0 z-[120] bg-white border border-slate-100 rounded-[24px] shadow-2xl p-4 min-w-[200px] animate-in slide-in-from-top-2 duration-200">
+                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Pen Settings</div>
+                 <div className="flex flex-wrap gap-2 mb-4">
+                   {['#000000', '#ef4444', '#3b82f6', '#22c55e', '#a855f7'].map(c => (
+                     <button 
+                       key={c}
+                       onClick={(e) => { e.stopPropagation(); setPenColor(c); }}
+                       className={`w-6 h-6 rounded-full border-2 ${penColor === c ? 'border-slate-800 scale-110' : 'border-transparent'}`}
+                       style={{ backgroundColor: c }}
+                     />
+                   ))}
+                 </div>
+                 <div className="space-y-2">
+                   <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                     <span>THICKNESS</span>
+                     <span>{penWidth}px</span>
+                   </div>
+                   <input 
+                     type="range" min="1" max="10" 
+                     value={penWidth} 
+                     onChange={(e) => setPenWidth(parseInt(e.target.value))}
+                     onClick={(e) => e.stopPropagation()}
+                     className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800"
+                   />
+                 </div>
+               </div>
+             )}
            </button>
            <button 
-             onClick={() => setActiveTool('highlighter')}
+             onClick={() => {
+               if (activeTool === 'highlighter') setShowHighlighterSettings(!showHighlighterSettings);
+               setActiveTool('highlighter');
+             }}
              className={`p-2 rounded-xl transition-all relative ${activeTool === 'highlighter' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
            >
-             <Highlighter className="w-5 h-5 text-yellow-500" />
+             <Highlighter className="w-5 h-5" style={{ color: highlighterColor }} />
              {activeTool === 'highlighter' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
+
+             {showHighlighterSettings && activeTool === 'highlighter' && (
+               <div className="absolute top-12 left-0 z-[120] bg-white border border-slate-100 rounded-[24px] shadow-2xl p-4 min-w-[200px] animate-in slide-in-from-top-2 duration-200">
+                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Highlighter Settings</div>
+                 <div className="flex flex-wrap gap-2 mb-4">
+                   {['#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#c4b5fd'].map(c => (
+                     <button 
+                       key={c}
+                       onClick={(e) => { e.stopPropagation(); setHighlighterColor(c); }}
+                       className={`w-6 h-6 rounded-full border-2 ${highlighterColor === c ? 'border-slate-800 scale-110' : 'border-transparent'}`}
+                       style={{ backgroundColor: c }}
+                     />
+                   ))}
+                 </div>
+                 <div className="space-y-2">
+                   <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                     <span>THICKNESS</span>
+                     <span>{highlighterWidth}px</span>
+                   </div>
+                   <input 
+                     type="range" min="5" max="30" 
+                     value={highlighterWidth} 
+                     onChange={(e) => setHighlighterWidth(parseInt(e.target.value))}
+                     onClick={(e) => e.stopPropagation()}
+                     className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                   />
+                 </div>
+               </div>
+             )}
            </button>
            <button 
              onClick={() => setActiveTool('eraser')}
@@ -795,7 +932,11 @@ export default function EditorScreen() {
       </div>
 
       {/* Main Content with faint dragon watermark */}
-      <main className="flex-1 overflow-y-auto bg-white relative pb-[80vh] scroll-smooth">
+      <main className={`flex-1 overflow-y-auto bg-white relative pb-[80vh] scroll-smooth ${
+        pageTemplate === 'lined' ? 'paper-lined' : 
+        pageTemplate === 'grid' ? 'paper-grid' : 
+        pageTemplate === 'dots' ? 'paper-dots' : ''
+      }`}>
         <div className="absolute inset-x-0 top-0 h-[300vh] pointer-events-none opacity-[0.02] flex items-start justify-center p-20 pt-40">
            <img src="/dragon_bg.png" alt="" className="w-full max-w-4xl object-contain grayscale animate-pulse" />
         </div>
@@ -805,7 +946,7 @@ export default function EditorScreen() {
             <ReactMarkdown rehypePlugins={[rehypeRaw]}>{text || "_Write something amazing..._"}</ReactMarkdown>
           </div>
         ) : (
-          <div className="max-w-6xl mx-auto h-full min-h-[100vh]">
+          <div className="max-w-6xl mx-auto h-full min-h-[100vh] relative">
             <textarea 
               placeholder="Start writing..." 
               className="w-full h-full p-8 sm:p-12 lg:p-20 outline-none resize-none text-xl text-slate-700 leading-relaxed bg-transparent relative z-10 font-normal min-h-[80vh]"
@@ -842,6 +983,40 @@ export default function EditorScreen() {
               <button onClick={() => formatText('italic')} className="text-sm italic font-serif text-slate-700 px-1">I</button>
               <button onClick={() => formatText('underline')} className="text-sm underline text-slate-700 px-1">U</button>
               <button onClick={() => formatText('strikethrough')} className="text-sm line-through text-slate-700 px-1">T</button>
+              <div className="relative inline-block">
+                <button 
+                  onClick={() => setShowColorPicker(!showColorPicker)} 
+                  className={`p-1 transition-colors ${showColorPicker ? 'text-blue-500' : 'text-slate-500 hover:text-slate-700'}`}
+                  title="Text Color"
+                >
+                  <Palette className="w-5 h-5" />
+                </button>
+                <AnimatePresence>
+                  {showColorPicker && (
+                    <>
+                      <div className="fixed inset-0 z-[120]" onClick={() => setShowColorPicker(false)} />
+                      <motion.div 
+                        initial={{ scale: 0.9, opacity: 0, y: -10 }}
+                        animate={{ scale: 1, opacity: 1, y: 0 }}
+                        exit={{ scale: 0.9, opacity: 0, y: -10 }}
+                        className="absolute bottom-full left-0 mb-2 z-[130] bg-white border border-slate-100 rounded-xl shadow-2xl p-2 min-w-[160px]"
+                      >
+                        <div className="grid grid-cols-4 gap-1">
+                          {colors.map(color => (
+                            <button 
+                              key={color.value}
+                              onClick={() => applyColor(color.value)}
+                              className="w-6 h-6 rounded-md border border-slate-100 hover:scale-110 transition-transform"
+                              style={{ backgroundColor: color.value }}
+                              title={color.name}
+                            />
+                          ))}
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
            </div>
         </div>
 
@@ -864,7 +1039,67 @@ export default function EditorScreen() {
         </div>
       </footer>
 
-      {/* Image Generation Modal */}
+      {/* Enhanced Audio Recording Floating UI */}
+      <AnimatePresence>
+        {isRecordingAudio && (
+          <motion.div 
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[100] bg-white border border-slate-200 rounded-full shadow-2xl p-2 flex items-center gap-4 min-w-[280px]"
+          >
+            <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
+              <Mic className="w-5 h-5 text-white animate-pulse" />
+            </div>
+            <div className="flex-1">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Audio Bookmarking</div>
+              <div className="text-sm font-bold text-slate-800">Recording...</div>
+            </div>
+            <button 
+              onClick={stopRecordingAudio}
+              className="p-3 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-colors"
+            >
+              <StopCircle className="w-6 h-6" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Page Template Menu */}
+      <AnimatePresence>
+        {showTemplateMenu && (
+          <>
+            <div className="fixed inset-0 z-[100]" onClick={() => setShowTemplateMenu(false)} />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="fixed top-20 right-14 z-[110] bg-white border border-slate-100 rounded-[32px] shadow-2xl p-4 min-w-[240px]"
+            >
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 p-2 mb-2">Page Templates</div>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'plain', name: 'Plain', icon: <Square className="w-5 h-5" /> },
+                  { id: 'lined', name: 'Lined', icon: <AlignLeft className="w-5 h-5" /> },
+                  { id: 'grid', name: 'Grid', icon: <Grid3X3 className="w-5 h-5" /> },
+                  { id: 'dots', name: 'Dots', icon: <Circle className="w-5 h-5 fill-current scale-50" /> },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setPageTemplate(t.id as any); setShowTemplateMenu(false); }}
+                    className={`flex flex-col items-center gap-2 p-4 rounded-2xl transition-all ${
+                      pageTemplate === t.id ? 'bg-blue-50 text-blue-600 ring-2 ring-blue-100' : 'hover:bg-slate-50 text-slate-600'
+                    }`}
+                  >
+                    {t.icon}
+                    <span className="text-[10px] font-bold uppercase tracking-widest">{t.name}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
       {showImageGenModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-[32px] w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 flex flex-col">
@@ -917,6 +1152,82 @@ export default function EditorScreen() {
                       Generate Magic
                     </>
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Summary Options Modal */}
+      {showSummaryModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl border border-slate-100 flex flex-col">
+            <div className="p-6 bg-slate-900 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <MessageSquareText className="w-6 h-6 text-blue-500" />
+                <h3 className="text-white font-black uppercase tracking-widest text-sm">Summary Options</h3>
+              </div>
+              <button 
+                onClick={() => setShowSummaryModal(false)}
+                className="text-white/40 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-8 space-y-8">
+              {/* Length Selection */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Summary Length</label>
+                <div className="flex bg-slate-100 p-1.5 rounded-2xl gap-1">
+                  {(['short', 'medium', 'detailed'] as const).map((l) => (
+                    <button
+                      key={l}
+                      onClick={() => setSummaryOptions({ ...summaryOptions, length: l })}
+                      className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                        summaryOptions.length === l 
+                          ? 'bg-white text-blue-600 shadow-sm' 
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Format Selection */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Output Format</label>
+                <div className="flex bg-slate-100 p-1.5 rounded-2xl gap-1">
+                  {(['bullet points', 'paragraph'] as const).map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setSummaryOptions({ ...summaryOptions, format: f })}
+                      className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                        summaryOptions.format === f 
+                          ? 'bg-white text-blue-600 shadow-sm' 
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button 
+                  onClick={() => setShowSummaryModal(false)}
+                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 rounded-2xl transition-colors border border-slate-100"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleSummarize}
+                  className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/10"
+                >
+                  Summarize Now
                 </button>
               </div>
             </div>
