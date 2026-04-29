@@ -75,13 +75,13 @@ export const generateImage = async (prompt: string): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: {
+      contents: [{
         parts: [
           {
             text: prompt,
           },
         ],
-      },
+      }],
       config: {
         imageConfig: {
           aspectRatio: "1:1",
@@ -94,9 +94,51 @@ export const generateImage = async (prompt: string): Promise<string> => {
         return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
-    throw new Error("No image was generated.");
+    throw new Error("No image data found in response.");
   } catch (error) {
     console.error("Image generation error:", error);
+    if (error instanceof Error) {
+       throw error;
+    }
     throw new Error("AI service is currently unavailable for image generation.");
+  }
+};
+
+export const translateText = async (text: string, targetLanguage: string): Promise<string> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Translate the following text to ${targetLanguage}. Maintain the original tone and markdown formatting if present.\n\nText:\n${text}`,
+    });
+    return response.text || "Failed to translate text.";
+  } catch (error) {
+    console.error("Translation error:", error);
+    throw new Error("AI service is currently unavailable.");
+  }
+};
+
+export const autoFormatText = async (text: string): Promise<string> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Transform the following messy notes or text into a professional document with clear headers, bullet points, and structure. Use bolding for emphasis. Keep it clean and formatted with Markdown.\n\nText:\n${text}`,
+    });
+    return response.text || "Failed to auto-format.";
+  } catch (error) {
+    console.error("Auto-format error:", error);
+    throw new Error("AI service is currently unavailable.");
+  }
+};
+
+export const spellCheckText = async (text: string): Promise<string> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Fix any spelling and grammatical errors in the following text. Preserve the original tone and strictly return the corrected text only.\n\nText:\n${text}`,
+    });
+    return response.text || text;
+  } catch (error) {
+    console.error("Spell check error:", error);
+    return text;
   }
 };

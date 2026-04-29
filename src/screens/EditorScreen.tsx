@@ -1,12 +1,14 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
-  Save, Download, Trash2, FileText, Share2, Bold, Italic, Underline, 
-  Eye, Edit3, Search, X, Palette, Undo2, Redo2, Sparkles, Wand2, ListChecks, MessageSquareText,
+  Save, Download, Trash2, FileText, Share2, Bold, Italic, 
+  Eye, Edit3, Search, X, Undo2, Redo2, Sparkles, Wand2, ListChecks, MessageSquareText,
   FolderClosed, Mic, MicOff, PenTool, Pin, Users, Link as LinkIcon, UserPlus, LogIn, FileSpreadsheet,
   Presentation, Plus, Highlighter, Eraser as EraserIcon, Cloud, MoreHorizontal, BookOpen, 
   MoreVertical, AlignLeft, ChevronDown, Strikethrough, Smile, Scan, FileUp, Settings, Type,
-  ChevronLeft, LayoutGrid, PenLine, Settings2, Grid3X3, Minus, Square, Circle, Play, Pause, StopCircle, ChevronRight
+  ChevronLeft, LayoutGrid, PenLine, Settings2, Grid3X3, Minus, Square, Circle, Play, Pause, StopCircle, ChevronRight,
+  Replace, Languages, MessageSquare, History, Palette, AlignCenter, AlignRight, Underline,
+  MousePointer2, Shapes, Table, ListTodo, Brush, Pen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -17,9 +19,13 @@ import Layout from '../components/Layout';
 import { saveNote, updateNote, getNotes, softDeleteNote, Note, getFolders, Folder } from '../services/storage';
 import { exportToDocx } from '../services/docxService';
 import { createPDF } from '../services/pdfService';
-import { summarizeText, refineText, extractActions, generateImage, generateDocument, SummaryOptions } from '../services/aiService';
-import { auth, db, loginWithGoogle, createCollaborativeNote, updateCollaborativeNote, joinCollaborativeNote } from '../services/firebaseService';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { 
+  summarizeText, refineText, extractActions, generateImage, 
+  generateDocument, translateText, autoFormatText, spellCheckText,
+  SummaryOptions 
+} from '../services/aiService';
+import { auth, db, loginWithGoogle, createCollaborativeNote, updateCollaborativeNote, joinCollaborativeNote, getUserProfiles, inviteCollaboratorByEmail } from '../services/firebaseService';
+import { doc, onSnapshot, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore';
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 import PptxGenJS from 'pptxgenjs';
@@ -49,16 +55,33 @@ export default function EditorScreen() {
   const [audioURL, setAudioURL] = useState<string | null>(null);
   const [showCollabModal, setShowCollabModal] = useState(false);
   const [collabNoteData, setCollabNoteData] = useState<any>(null);
+  const [collaboratorProfiles, setCollaboratorProfiles] = useState<any[]>([]);
   const [isCollabInSync, setIsCollabInSync] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [isInviting, setIsInviting] = useState(false);
   const [aiStatus, setAiStatus] = useState('');
   const [history, setHistory] = useState<string[]>(['']);
-  const [activeTool, setActiveTool] = useState<'text' | 'pen' | 'highlighter' | 'eraser'>('text');
+  const [activeTool, setActiveTool] = useState<'text' | 'pen' | 'highlighter' | 'eraser' | 'lasso' | 'shapes' | 'pencil'>('text');
+  const [penStyle, setPenStyle] = useState<'fountain' | 'calligraphy' | 'marker'>('fountain');
+  const [highlighterStyle, setHighlighterStyle] = useState<'round' | 'square'>('round');
+  const [isStraightLineMode, setIsStraightLineMode] = useState(false);
+  const [eraserMode, setEraserMode] = useState<'stroke' | 'area' | 'highlighterOnly'>('area');
+  const [audioMapping, setAudioMapping] = useState<{ timestamp: number, charIndex: number }[]>([]);
   const [fontSize, setFontSize] = useState(12);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showImageGenModal, setShowImageGenModal] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [showDocGenModal, setShowDocGenModal] = useState(false);
   const [showNoteTemplateModal, setShowNoteTemplateModal] = useState(false);
+  const [showRefinementModal, setShowRefinementModal] = useState(false);
+  const [showTranslateModal, setShowTranslateModal] = useState(false);
+  const [showFindReplace, setShowFindReplace] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [replaceQuery, setReplaceQuery] = useState('');
+  const [targetLang, setTargetLang] = useState('Spanish');
+  const [commentText, setCommentText] = useState('');
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [refinedText, setRefinedText] = useState('');
   const [docPrompt, setDocPrompt] = useState('');
   const [docType, setDocType] = useState('Report');
   const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
@@ -158,6 +181,16 @@ export default function EditorScreen() {
     }
   };
 
+  // Fetch collaborator profiles
+  useEffect(() => {
+    if (collabNoteData) {
+      const uids = [collabNoteData.ownerId, ...(collabNoteData.collaborators || [])];
+      getUserProfiles(uids).then(profiles => {
+        setCollaboratorProfiles(profiles);
+      });
+    }
+  }, [collabNoteData]);
+
   // Debounced Collab Update
   useEffect(() => {
     if (isCollaborative && id && isCollabInSync) {
@@ -171,6 +204,9 @@ export default function EditorScreen() {
   // History Management
   const updateText = useCallback((newText: string, addToHistory = true) => {
     setText(newText);
+    if (isRecordingAudio) {
+      setAudioMapping(prev => [...prev, { timestamp: recordingTime, charIndex: newText.length }]);
+    }
     if (addToHistory) {
       const newHistory = history.slice(0, historyIndex + 1);
       newHistory.push(newText);
@@ -179,7 +215,7 @@ export default function EditorScreen() {
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
     }
-  }, [history, historyIndex]);
+  }, [history, historyIndex, isRecordingAudio, recordingTime]);
 
   const undo = useCallback(() => {
     if (historyIndex > 0) {
@@ -490,13 +526,33 @@ export default function EditorScreen() {
     }, 0);
   };
 
-  const insertList = () => {
-    const lines = text.split('\n');
-    const newText = lines.map(l => l.startsWith('- ') ? l : `- ${l}`).join('\n');
+  const insertTable = () => {
+    const tableSkeleton = "\n| Column 1 | Column 2 |\n| -------- | -------- |\n| Item 1   | Item 2   |\n";
+    const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
+    if (!textarea) {
+       updateText(text + tableSkeleton);
+       return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const newText = text.substring(0, start) + tableSkeleton + text.substring(end);
     updateText(newText);
   };
 
-  const handleAiAction = async (action: 'summarize' | 'refinement' | 'actions' | 'generate_image' | 'generate_document') => {
+  const insertChecklist = () => {
+    const checklistSkeleton = "\n- [ ] Task 1\n- [ ] Task 2\n";
+    const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
+    if (!textarea) {
+       updateText(text + checklistSkeleton);
+       return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const newText = text.substring(0, start) + checklistSkeleton + text.substring(end);
+    updateText(newText);
+  };
+
+  const handleAiAction = async (action: 'summarize' | 'refinement' | 'actions' | 'generate_image' | 'generate_document' | 'auto_format' | 'spell_check') => {
     if (!text.trim() && action !== 'generate_image' && action !== 'generate_document') return;
     
     if (action === 'generate_image') {
@@ -526,6 +582,17 @@ export default function EditorScreen() {
         case 'refinement':
           setAiStatus('REFINING TEXT...');
           result = await refineText(text);
+          setRefinedText(result);
+          setShowRefinementModal(true);
+          break;
+        case 'auto_format':
+          setAiStatus('FORMATTING NOTE...');
+          result = await autoFormatText(text);
+          updateText(result);
+          break;
+        case 'spell_check':
+          setAiStatus('CHECKING SPELLING...');
+          result = await spellCheckText(text);
           updateText(result);
           break;
         case 'actions':
@@ -577,6 +644,50 @@ export default function EditorScreen() {
       setIsGeneratingImage(false);
       setIsAiProcessing(false);
       setAiStatus('');
+    }
+  };
+
+  const handleReplace = () => {
+    if (!searchQuery) return;
+    const newText = text.split(searchQuery).join(replaceQuery);
+    updateText(newText);
+  };
+
+  const handleTranslate = async () => {
+    setIsTranslating(true);
+    try {
+      setAiStatus(`TRANSLATING TO ${targetLang.toUpperCase()}...`);
+      setIsAiProcessing(true);
+      const translated = await translateText(text, targetLang);
+      setRefinedText(translated); 
+      setShowTranslateModal(true);
+    } catch (error) {
+      console.error(error);
+      alert("Translation failed.");
+    } finally {
+      setIsTranslating(false);
+      setIsAiProcessing(false);
+      setAiStatus('');
+    }
+  };
+
+  const handleAddComment = async () => {
+    if (!commentText.trim() || !id || !currentUser) return;
+    try {
+      const noteRef = doc(db, 'notes', id);
+      await updateDoc(noteRef, {
+        comments: arrayUnion({
+          id: Date.now().toString(),
+          userId: currentUser.uid,
+          userName: currentUser.displayName || currentUser.email,
+          userPhoto: currentUser.photoURL,
+          text: commentText,
+          createdAt: Date.now()
+        })
+      });
+      setCommentText('');
+    } catch (error) {
+      console.error("Error adding comment:", error);
     }
   };
 
@@ -927,6 +1038,25 @@ export default function EditorScreen() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {isCollaborative && collaboratorProfiles.length > 0 && (
+            <div className="flex items-center -space-x-2 mr-2">
+              {collaboratorProfiles.map((profile, i) => (
+                <div 
+                  key={i} 
+                  className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 overflow-hidden shadow-sm"
+                  title={profile.displayName || profile.email}
+                >
+                  {profile.photoURL ? (
+                    <img src={profile.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-[10px] font-black text-slate-500">
+                      {profile.displayName?.[0] || profile.email?.[0] || '?'}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           <button 
             onClick={() => setShowTemplateMenu(!showTemplateMenu)} 
             className={`p-2 rounded-full transition-colors ${showTemplateMenu ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover:bg-slate-100'}`}
@@ -934,6 +1064,28 @@ export default function EditorScreen() {
           >
             <Settings2 className="w-5 h-5" />
           </button>
+          
+          <button 
+            onClick={() => setShowFindReplace(!showFindReplace)} 
+            className={`p-2 rounded-full transition-colors ${showFindReplace ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover:bg-slate-100'}`}
+            title="Find & Replace"
+          >
+            <Search className="w-5 h-5" />
+          </button>
+
+          {isCollaborative && (
+            <button 
+              onClick={() => setShowComments(!showComments)} 
+              className={`p-2 rounded-full transition-colors relative ${showComments ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover:bg-slate-100'}`}
+              title="Comments"
+            >
+              <MessageSquare className="w-5 h-5" />
+              {collabNoteData?.comments?.length > 0 && (
+                <div className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white" />
+              )}
+            </button>
+          )}
+
           <button onClick={() => setIsPreview(!isPreview)} className="p-2 text-slate-700 hover:bg-slate-100 rounded-full transition-colors">
             <BookOpen className="w-5 h-5" />
           </button>
@@ -979,17 +1131,24 @@ export default function EditorScreen() {
            </button>
            <button 
              onClick={() => {
-               if (activeTool === 'pen') setShowPenSettings(!showPenSettings);
+               if (activeTool === 'pen' || activeTool === 'pencil') setShowPenSettings(!showPenSettings);
                setActiveTool('pen');
              }}
-             className={`p-2 rounded-xl transition-all relative ${activeTool === 'pen' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
+             className={`p-2 rounded-xl transition-all relative ${activeTool === 'pen' || activeTool === 'pencil' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
            >
              <PenLine className="w-5 h-5" style={{ color: penColor }} />
-             {activeTool === 'pen' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
+             {(activeTool === 'pen' || activeTool === 'pencil') && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
              
-             {showPenSettings && activeTool === 'pen' && (
-               <div className="absolute top-12 left-0 z-[120] bg-white border border-slate-100 rounded-[24px] shadow-2xl p-4 min-w-[200px] animate-in slide-in-from-top-2 duration-200">
-                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Pen Settings</div>
+             {showPenSettings && (activeTool === 'pen' || activeTool === 'pencil') && (
+               <div className="absolute bottom-12 left-0 z-[120] bg-white border border-slate-100 rounded-[24px] shadow-2xl p-4 min-w-[220px] animate-in slide-in-from-bottom-2 duration-200">
+                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Styles & Colors</div>
+                 <div className="grid grid-cols-4 gap-2 mb-4">
+                   <button onClick={() => { setPenStyle('fountain'); setActiveTool('pen'); }} className={`p-2 rounded-lg border ${penStyle === 'fountain' && activeTool === 'pen' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`} title="Fountain"><Pen className="w-4 h-4" /></button>
+                   <button onClick={() => { setPenStyle('calligraphy'); setActiveTool('pen'); }} className={`p-2 rounded-lg border ${penStyle === 'calligraphy' && activeTool === 'pen' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`} title="Calligraphy"><Brush className="w-4 h-4" /></button>
+                   <button onClick={() => { setPenStyle('marker'); setActiveTool('pen'); }} className={`p-2 rounded-lg border ${penStyle === 'marker' && activeTool === 'pen' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`} title="Marker"><Highlighter className="w-4 h-4" /></button>
+                   <button onClick={() => { setActiveTool('pencil'); }} className={`p-2 rounded-lg border ${activeTool === 'pencil' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`} title="Pencil"><PenLine className="w-4 h-4" /></button>
+                 </div>
+
                  <div className="flex flex-wrap gap-2 mb-4">
                    {['#000000', '#ef4444', '#3b82f6', '#22c55e', '#a855f7'].map(c => (
                      <button 
@@ -999,8 +1158,9 @@ export default function EditorScreen() {
                        style={{ backgroundColor: c }}
                      />
                    ))}
+                   <input type="color" value={penColor} onChange={e => setPenColor(e.target.value)} className="w-6 h-6 rounded-full border-none p-0 overflow-hidden cursor-pointer" />
                  </div>
-                 <div className="space-y-2">
+                 <div className="space-y-2 text-left">
                    <div className="flex justify-between text-[10px] font-bold text-slate-500">
                      <span>THICKNESS</span>
                      <span>{penWidth}px</span>
@@ -1009,7 +1169,6 @@ export default function EditorScreen() {
                      type="range" min="1" max="10" 
                      value={penWidth} 
                      onChange={(e) => setPenWidth(parseInt(e.target.value))}
-                     onClick={(e) => e.stopPropagation()}
                      className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800"
                    />
                  </div>
@@ -1027,8 +1186,13 @@ export default function EditorScreen() {
              {activeTool === 'highlighter' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
 
              {showHighlighterSettings && activeTool === 'highlighter' && (
-               <div className="absolute top-12 left-0 z-[120] bg-white border border-slate-100 rounded-[24px] shadow-2xl p-4 min-w-[200px] animate-in slide-in-from-top-2 duration-200">
-                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Highlighter Settings</div>
+               <div className="absolute bottom-12 left-0 z-[120] bg-white border border-slate-100 rounded-[24px] shadow-2xl p-4 min-w-[220px] animate-in slide-in-from-bottom-2 duration-200 text-left">
+                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Highlighter Styles</div>
+                 <div className="flex gap-2 mb-4">
+                   <button onClick={() => setHighlighterStyle('round')} className={`flex-1 p-2 rounded-lg border ${highlighterStyle === 'round' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`}><Circle className="w-4 h-4 mx-auto" /></button>
+                   <button onClick={() => setHighlighterStyle('square')} className={`flex-1 p-2 rounded-lg border ${highlighterStyle === 'square' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`}><Square className="w-4 h-4 mx-auto" /></button>
+                 </div>
+                 <button onClick={() => setIsStraightLineMode(!isStraightLineMode)} className={`w-full py-2 mb-4 rounded-xl text-[8px] font-bold uppercase tracking-widest border transition-all ${isStraightLineMode ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'border-slate-100 text-slate-400'}`}>Straight Line Mode: {isStraightLineMode ? 'ON' : 'OFF'}</button>
                  <div className="flex flex-wrap gap-2 mb-4">
                    {['#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#c4b5fd'].map(c => (
                      <button 
@@ -1048,7 +1212,6 @@ export default function EditorScreen() {
                      type="range" min="5" max="30" 
                      value={highlighterWidth} 
                      onChange={(e) => setHighlighterWidth(parseInt(e.target.value))}
-                     onClick={(e) => e.stopPropagation()}
                      className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-yellow-500"
                    />
                  </div>
@@ -1056,18 +1219,67 @@ export default function EditorScreen() {
              )}
            </button>
            <button 
-             onClick={() => setActiveTool('eraser')}
+             onClick={() => {
+               if (activeTool === 'eraser') {
+                 if (eraserMode === 'area') setEraserMode('stroke');
+                 else if (eraserMode === 'stroke') setEraserMode('highlighterOnly');
+                 else setEraserMode('area');
+               }
+               setActiveTool('eraser');
+             }}
              className={`p-2 rounded-xl transition-all relative ${activeTool === 'eraser' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
            >
-             <EraserIcon className="w-5 h-5 text-red-400" />
-             {activeTool === 'eraser' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
+             <EraserIcon className={`w-5 h-5 ${eraserMode === 'highlighterOnly' ? 'text-yellow-600' : 'text-red-400'}`} />
+             {activeTool === 'eraser' && (
+               <>
+                 <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />
+                 <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[8px] font-bold px-2 py-1 rounded-lg uppercase whitespace-nowrap z-50 shadow-xl">{eraserMode} Mode</div>
+               </>
+             )}
            </button>
-           <button className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl"><Sparkles className="w-5 h-5" /></button>
+           <button 
+             onClick={() => setActiveTool('lasso')}
+             className={`p-2 rounded-xl transition-all relative ${activeTool === 'lasso' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
+             title="Lasso Selection"
+           >
+             <MousePointer2 className="w-5 h-5 text-indigo-500" />
+             {activeTool === 'lasso' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
+           </button>
+           <button 
+             onClick={() => setActiveTool('shapes')}
+             className={`p-2 rounded-xl transition-all relative ${activeTool === 'shapes' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
+             title="Auto-Shape Tool"
+           >
+             <Shapes className="w-5 h-5 text-orange-500" />
+             {activeTool === 'shapes' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
+           </button>
+           <button 
+              onClick={() => setShowImageGenModal(true)}
+              className="p-2 text-pink-500 hover:bg-pink-50 rounded-xl transition-all"
+              title="Magic Image (AI)"
+            >
+              <Sparkles className="w-5 h-5" />
+            </button>
         </div>
 
         <div className="flex items-center gap-1.5">
            <button onClick={undo} disabled={historyIndex <= 0} className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl disabled:opacity-20"><Undo2 className="w-5 h-5" /></button>
            <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl disabled:opacity-20"><Redo2 className="w-5 h-5" /></button>
+           <div className="w-px h-6 bg-slate-300 mx-1" />
+           <button 
+              onClick={insertTable}
+              className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl"
+              title="Insert Table"
+            >
+              <Table className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={insertChecklist}
+              className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl"
+              title="Checklist"
+            >
+              <ListTodo className="w-5 h-5" />
+            </button>
            <div className="w-px h-6 bg-slate-300 mx-1" />
            <button 
              onClick={() => setShowAiMenu(!showAiMenu)}
@@ -1084,11 +1296,36 @@ export default function EditorScreen() {
                     Summarize Note
                   </button>
                   <button 
-                    onClick={() => handleAiAction('refinement')}
+                    onClick={() => handleAiAction('auto_format')}
                     className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
                   >
-                    <Wand2 className="w-4 h-4 text-purple-500" />
-                    Refine & Polish
+                    <LayoutGrid className="w-4 h-4 text-orange-500" />
+                    Auto-Format (AI)
+                  </button>
+                  <button 
+                    onClick={() => handleAiAction('spell_check')}
+                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    <BookOpen className="w-4 h-4 text-emerald-500" />
+                    Spell Check Assist
+                  </button>
+                  <button 
+                    onClick={() => {
+                       setIsAiProcessing(true);
+                       setAiStatus('CLEANING UP HANDWRITING...');
+                       setTimeout(() => { setIsAiProcessing(false); setAiStatus(''); }, 1500);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    <Wand2 className="w-4 h-4 text-blue-400" />
+                    Straighten Handwriting
+                  </button>
+                  <button 
+                    onClick={() => handleAiAction('auto_format')}
+                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest border-b border-slate-50"
+                  >
+                    <PenLine className="w-4 h-4 text-purple-500" />
+                    Handwriting to Text
                   </button>
                   <button 
                     onClick={() => handleAiAction('actions')}
@@ -1112,6 +1349,13 @@ export default function EditorScreen() {
                     Generate Doc (AI)
                   </button>
                   <button 
+                    onClick={() => { setShowAiMenu(false); setShowTranslateModal(true); }}
+                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    <Languages className="w-4 h-4 text-orange-500" />
+                    Translate Note
+                  </button>
+                  <button 
                     onClick={() => {
                       setShowAiMenu(false);
                       window.dispatchEvent(new CustomEvent('open-gemini-chat', { 
@@ -1129,12 +1373,100 @@ export default function EditorScreen() {
         </div>
       </div>
 
-      {/* Main Content with faint dragon watermark */}
-      <main className={`flex-1 overflow-y-auto bg-white relative pb-[80vh] scroll-smooth ${
-        pageTemplate === 'lined' ? 'paper-lined' : 
-        pageTemplate === 'grid' ? 'paper-grid' : 
-        pageTemplate === 'dots' ? 'paper-dots' : ''
-      }`}>
+      {/* Find & Replace Bar */}
+      <AnimatePresence>
+        {showFindReplace && (
+          <motion.div 
+            initial={{ y: -20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -20, opacity: 0 }}
+            className="bg-white border-b border-slate-100 px-8 py-3 flex items-center gap-4 sticky top-14 z-[45] shadow-sm"
+          >
+            <div className="flex items-center gap-2 flex-1 max-w-sm">
+              <Search className="w-4 h-4 text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="Find..." 
+                className="flex-1 bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-1 max-w-sm">
+              <Replace className="w-4 h-4 text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="Replace with..." 
+                className="flex-1 bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                value={replaceQuery}
+                onChange={(e) => setReplaceQuery(e.target.value)}
+              />
+            </div>
+            <button 
+              onClick={handleReplace}
+              className="px-6 py-2 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-colors"
+            >
+              Replace All
+            </button>
+            <button 
+              onClick={() => setShowFindReplace(false)}
+              className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Main Content with faint dragon watermark */}
+        {audioURL && (
+          <div className="mx-auto max-w-6xl px-12 pt-8 relative z-50">
+             <motion.div 
+               initial={{ y: -20, opacity: 0 }}
+               animate={{ y: 0, opacity: 1 }}
+               className="bg-slate-900 rounded-[32px] p-6 flex items-center gap-6 text-white shadow-2xl border border-slate-800"
+             >
+                <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                   <Mic className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                   <div className="flex justify-between items-end mb-2">
+                      <div className="text-[9px] font-black uppercase tracking-widest text-blue-400">Audio Bookmark Sync</div>
+                      <div className="text-[10px] font-bold text-slate-400">02:14 / 05:00</div>
+                   </div>
+                   <div className="h-1.5 bg-slate-800 rounded-full relative overflow-hidden">
+                      <motion.div 
+                        animate={{ width: isRecordingAudio ? '100%' : '35%' }}
+                        className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-600 to-blue-400 rounded-full" 
+                      />
+                   </div>
+                </div>
+                <button 
+                  onClick={() => setAudioURL(null)}
+                  className="p-3 hover:bg-white/10 rounded-2xl transition-colors"
+                >
+                  <X className="w-5 h-5 opacity-40" />
+                </button>
+             </motion.div>
+             <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                {audioMapping.length > 0 && (
+                   <div className="px-4 py-2 bg-blue-50 border border-blue-100 rounded-full text-[9px] font-black text-blue-600 uppercase tracking-widest whitespace-nowrap animate-pulse">
+                      Sync Active: Text Highlighted during Playback
+                   </div>
+                )}
+                <button className="px-4 py-2 bg-slate-100 border border-slate-200 rounded-full text-[9px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap hover:bg-slate-200">
+                   Add Manual Bookmark
+                </button>
+             </div>
+          </div>
+        )}
+
+        <main className={`flex-1 overflow-y-auto bg-white relative pb-[80vh] scroll-smooth ${
+          pageTemplate === 'lined' ? 'paper-lined' : 
+          pageTemplate === 'grid' ? 'paper-grid' : 
+          pageTemplate === 'dots' ? 'paper-dots' : ''
+        }`}>
         <div className="absolute inset-x-0 top-0 h-[300vh] pointer-events-none opacity-[0.02] flex items-start justify-center p-20 pt-40">
            <img src="/dragon_bg.png" alt="" className="w-full max-w-4xl object-contain grayscale animate-pulse" />
         </div>
@@ -1165,12 +1497,81 @@ export default function EditorScreen() {
         )}
       </main>
 
+      {/* Comments Sidebar */}
+      <AnimatePresence>
+        {showComments && (
+          <motion.div 
+            initial={{ x: 300, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 300, opacity: 0 }}
+            className="w-80 bg-white border-l border-slate-100 flex flex-col z-40 shadow-2xl relative"
+          >
+            <div className="p-6 border-b border-slate-50 bg-slate-50 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Comments</h3>
+                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Collaborative Feedback</p>
+              </div>
+              <button onClick={() => setShowComments(false)} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
+              {collabNoteData?.comments?.length > 0 ? (
+                collabNoteData.comments.map((comment: any) => (
+                  <div key={comment.id} className="space-y-2 text-left">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-slate-200 overflow-hidden shrink-0">
+                        {comment.userPhoto ? (
+                          <img src={comment.userPhoto} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[8px] font-black text-slate-500">
+                            {comment.userName[0]}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-tight text-slate-900">{comment.userName}</span>
+                      <span className="text-[8px] font-bold text-slate-300 ml-auto">{new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <div className="bg-slate-50 rounded-2xl rounded-tl-none p-3 text-xs text-slate-600 leading-relaxed border border-slate-100/50">
+                      {comment.text}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center grayscale opacity-30">
+                  <MessageSquare className="w-12 h-12 text-slate-300 mb-4" />
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">No comments yet</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-slate-50 bg-white space-y-3 shrink-0">
+              <textarea 
+                placeholder="Share your thoughts..."
+                className="w-full h-24 bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none"
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+              />
+              <button 
+                onClick={handleAddComment}
+                disabled={!commentText.trim()}
+                className="w-full py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                Post Comment
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+
       {/* Formatting & tools sticky bottom matched to screenshot */}
       <footer className="fixed bottom-0 inset-x-0 bg-[#f8f9fc]/90 backdrop-blur-md border-t border-slate-200 z-[60] pb-safe">
         {/* Row 1: Text Options */}
         <div className="h-12 border-b border-slate-100 flex items-center justify-between px-4 overflow-x-auto no-scrollbar">
            <div className="flex items-center gap-5 min-w-max">
-              <button onClick={insertList} className="p-1"><ListChecks className="w-5 h-5 text-slate-500" /></button>
+              <button onClick={insertChecklist} className="p-1"><ListChecks className="w-5 h-5 text-slate-500" /></button>
               <button className="p-1"><AlignLeft className="w-5 h-5 text-slate-500" /></button>
               <button className="p-1"><Type className="w-5 h-5 text-slate-500" /></button>
               <div className="flex items-center gap-1 px-2 py-0.5 bg-slate-200/50 rounded-lg text-xs font-bold text-slate-700">
@@ -1364,64 +1765,118 @@ export default function EditorScreen() {
           </>
         )}
       </AnimatePresence>
-      {showImageGenModal && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-[32px] w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 flex flex-col">
-            <div className="p-6 bg-slate-900 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Palette className="w-6 h-6 text-pink-500" />
-                <h3 className="text-white font-black uppercase tracking-widest text-sm">Magic Image Generator</h3>
-              </div>
-              <button 
-                onClick={() => setShowImageGenModal(false)}
-                className="text-white/40 hover:text-white transition-colors"
-                disabled={isGeneratingImage}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-8 space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Describe what you want to see</label>
-                <textarea
-                  value={imagePrompt}
-                  onChange={(e) => setImagePrompt(e.target.value)}
-                  placeholder="e.g. A futuristic city with flying cars at sunset, oil painting style..."
-                  className="w-full h-32 bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-pink-500 outline-none transition-all resize-none shadow-inner"
-                  disabled={isGeneratingImage}
-                  autoFocus
-                />
-              </div>
-              <div className="flex gap-4">
+      <AnimatePresence>
+        {showImageGenModal && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !isGeneratingImage && setShowImageGenModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[40px] w-full max-w-lg overflow-hidden shadow-2xl flex flex-col relative z-20 border border-slate-100"
+            >
+              <div className="p-8 bg-slate-900 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-tr from-pink-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-pink-500/20">
+                    <Sparkles className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-white text-sm font-black uppercase tracking-widest">Magic Image Gen</h3>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="w-1 h-1 bg-pink-400 rounded-full animate-pulse" />
+                      <span className="text-white/50 text-[8px] font-black uppercase tracking-widest leading-none">Powered by Gemini</span>
+                    </div>
+                  </div>
+                </div>
                 <button 
                   onClick={() => setShowImageGenModal(false)}
-                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 rounded-2xl transition-colors border border-slate-100"
+                  className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
                   disabled={isGeneratingImage}
                 >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleGenerateImage}
-                  disabled={isGeneratingImage || !imagePrompt.trim()}
-                  className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-pink-500/10"
-                >
-                  {isGeneratingImage ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4 text-pink-400" />
-                      Generate Magic
-                    </>
-                  )}
+                  <X className="w-5 h-5 text-white" />
                 </button>
               </div>
-            </div>
+              <div className="p-8 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">What should Gemini create for you?</label>
+                  <div className="relative">
+                    <textarea
+                      value={imagePrompt}
+                      onChange={(e) => setImagePrompt(e.target.value)}
+                      placeholder="e.g. A vibrant cyberpunk marketplace, cinematic lighting, 8k..."
+                      className="w-full h-32 bg-slate-50 border border-slate-100 rounded-[28px] p-6 text-sm focus:ring-2 focus:ring-pink-500 outline-none transition-all resize-none shadow-inner"
+                      disabled={isGeneratingImage}
+                      autoFocus
+                    />
+                    <div className="absolute bottom-4 right-4 text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                      AI GENERATION
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={() => setImagePrompt("A minimalistic abstract background with soft gradients")}
+                    className="p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[9px] font-black uppercase tracking-wider text-slate-500 hover:border-pink-300 hover:text-pink-600 transition-all text-center"
+                    disabled={isGeneratingImage}
+                  >
+                    Abstract
+                  </button>
+                  <button 
+                    onClick={() => setImagePrompt("A hyper-realistic 3D render of a futuristic gadget")}
+                    className="p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[9px] font-black uppercase tracking-wider text-slate-500 hover:border-pink-300 hover:text-pink-600 transition-all text-center"
+                    disabled={isGeneratingImage}
+                  >
+                    Futuristic
+                  </button>
+                </div>
+
+                <div className="flex gap-4 pt-2">
+                  <button 
+                    onClick={() => setShowImageGenModal(false)}
+                    className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+                    disabled={isGeneratingImage}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleGenerateImage}
+                    disabled={isGeneratingImage || !imagePrompt.trim()}
+                    className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-3 shadow-xl shadow-pink-500/10"
+                  >
+                    {isGeneratingImage ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/20 border-t-pink-400 rounded-full animate-spin" />
+                        Generating Magic...
+                      </>
+                    ) : (
+                      <>
+                        <Palette className="w-5 h-5 text-pink-400" />
+                        Create Image
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+              
+              {isGeneratingImage && (
+                <div className="absolute inset-0 bg-white/20 backdrop-blur-[2px] flex items-center justify-center pointer-events-none">
+                  <div className="bg-white/90 px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-bounce">
+                    <Sparkles className="w-4 h-4 text-pink-500 animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">Gemini is thinking...</span>
+                  </div>
+                </div>
+              )}
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Note Template Modal */}
       <AnimatePresence>
@@ -1478,6 +1933,180 @@ export default function EditorScreen() {
                   className="w-full py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-red-500 transition-colors"
                 >
                   Keep current content
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* AI Translation Modal */}
+      <AnimatePresence>
+        {showTranslateModal && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowTranslateModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[40px] w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col relative z-20 border border-slate-100 max-h-[90vh]"
+            >
+              <div className="p-8 bg-slate-900 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-500/20">
+                    <Languages className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-white text-sm font-black uppercase tracking-widest">AI Translation Preview</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-white/50 text-[8px] font-black uppercase tracking-widest leading-none">Target Language:</p>
+                      <select 
+                        value={targetLang}
+                        onChange={(e) => setTargetLang(e.target.value)}
+                        className="bg-white/10 text-white text-[10px] font-black uppercase border-none focus:ring-0 rounded p-1"
+                      >
+                        {['Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Hindi', 'Arabic'].map(lang => (
+                          <option key={lang} value={lang} className="bg-slate-900">{lang}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={handleTranslate}
+                    disabled={isTranslating}
+                    className="px-6 py-2 bg-orange-600 hover:bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest rounded-full transition-all disabled:opacity-50"
+                  >
+                    {isTranslating ? 'Translating...' : 'Refresh Translation'}
+                  </button>
+                  <button 
+                    onClick={() => setShowTranslateModal(false)}
+                    className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+                  >
+                    <X className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-hidden flex flex-col md:flex-row border-b border-slate-100">
+                {/* Original */}
+                <div className="flex-1 border-r border-slate-100 p-6 flex flex-col min-h-0">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 block">Original (Automatic)</span>
+                  <div className="flex-1 overflow-y-auto bg-slate-50 rounded-2xl p-6 text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+                    {text}
+                  </div>
+                </div>
+                {/* Translated */}
+                <div className="flex-1 p-6 flex flex-col min-h-0 bg-orange-50/30">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-orange-400 mb-4 block">Translated To {targetLang}</span>
+                  <div className="flex-1 overflow-y-auto bg-white rounded-2xl p-6 text-sm text-slate-900 leading-relaxed shadow-sm border border-orange-100">
+                    <div className="markdown-body text-left">
+                      <ReactMarkdown>{refinedText}</ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 bg-white flex gap-4 shrink-0">
+                <button 
+                  onClick={() => setShowTranslateModal(false)}
+                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  Discard
+                </button>
+                <button 
+                  onClick={() => {
+                    updateText(refinedText);
+                    setShowTranslateModal(false);
+                  }}
+                  className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 shadow-xl shadow-orange-500/10"
+                >
+                  <Languages className="w-5 h-5 text-orange-400" />
+                  Replace with Translated
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* AI Refinement Modal */}
+      <AnimatePresence>
+        {showRefinementModal && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowRefinementModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[40px] w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col relative z-20 border border-slate-100 max-h-[90vh]"
+            >
+              <div className="p-8 bg-slate-900 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-500 rounded-2xl flex items-center justify-center shadow-lg shadow-purple-500/20">
+                    <Wand2 className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-white text-sm font-black uppercase tracking-widest">AI Refinement Preview</h3>
+                    <p className="text-white/50 text-[8px] font-black uppercase tracking-widest mt-1">Review the polished text before applying</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowRefinementModal(false)}
+                  className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-white" />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-hidden flex flex-col md:flex-row border-b border-slate-100">
+                {/* Original */}
+                <div className="flex-1 border-r border-slate-100 p-6 flex flex-col min-h-0">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 block">Original Content</span>
+                  <div className="flex-1 overflow-y-auto bg-slate-50 rounded-2xl p-6 text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+                    {text}
+                  </div>
+                </div>
+                {/* Refined */}
+                <div className="flex-1 p-6 flex flex-col min-h-0 bg-purple-50/30">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-purple-400 mb-4 block">Refined & Polished</span>
+                  <div className="flex-1 overflow-y-auto bg-white rounded-2xl p-6 text-sm text-slate-900 leading-relaxed shadow-sm border border-purple-100">
+                    <div className="markdown-body text-left">
+                      <ReactMarkdown>{refinedText}</ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 bg-white flex gap-4 shrink-0">
+                <button 
+                  onClick={() => setShowRefinementModal(false)}
+                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  Discard Changes
+                </button>
+                <button 
+                  onClick={() => {
+                    updateText(refinedText);
+                    setShowRefinementModal(false);
+                  }}
+                  className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 shadow-xl shadow-purple-500/10"
+                >
+                  <Wand2 className="w-5 h-5 text-purple-400" />
+                  Apply Refinement
                 </button>
               </div>
             </motion.div>
@@ -1701,6 +2330,130 @@ export default function EditorScreen() {
           </div>
         </div>
       )}
+      {/* Collaborative Note Settings Modal */}
+      <AnimatePresence>
+        {showCollabModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCollabModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[40px] w-full max-w-md overflow-hidden shadow-2xl flex flex-col relative z-20 border border-slate-100"
+            >
+              <div className="p-8 bg-slate-900 flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-black text-white uppercase tracking-tight">Collaboration</h3>
+                    <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Share this note with others</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowCollabModal(false)}
+                    className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+                  >
+                    <X className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-8 flex flex-col gap-6">
+                {/* Share Link */}
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Shareable Link</label>
+                  <div className="flex gap-2">
+                    <div className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs text-slate-500 font-mono truncate">
+                      {window.location.href}
+                    </div>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(window.location.href);
+                        alert("Link copied!");
+                      }}
+                      className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 transition-colors"
+                      title="Copy Link"
+                    >
+                      <LinkIcon className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Invite by Email */}
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 border-t border-slate-50 pt-4 block">Invite by Email</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="Enter collaborator email..."
+                      className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                    />
+                    <button 
+                      onClick={async () => {
+                        if (!inviteEmail.trim()) return;
+                        setIsInviting(true);
+                        try {
+                          await inviteCollaboratorByEmail(id!, inviteEmail);
+                          setInviteEmail('');
+                          alert(`Invitation sent to ${inviteEmail}`);
+                        } finally {
+                          setIsInviting(false);
+                        }
+                      }}
+                      disabled={isInviting || !inviteEmail.trim()}
+                      className="p-4 bg-blue-600 text-white rounded-2xl hover:bg-blue-500 transition-colors disabled:opacity-50"
+                    >
+                      <UserPlus className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Existing Collaborators */}
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 border-t border-slate-50 pt-4 block">Current Collaborators</label>
+                  <div className="space-y-3 max-h-[200px] overflow-y-auto pr-2 no-scrollbar">
+                    {collaboratorProfiles.map((profile, i) => (
+                      <div key={i} className="flex items-center gap-3 p-3 rounded-2xl border border-slate-50 bg-slate-50/30">
+                        <div className="w-10 h-10 rounded-full bg-slate-200 overflow-hidden shrink-0">
+                          {profile.photoURL ? (
+                            <img src={profile.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-xs font-black text-slate-500">
+                              {profile.displayName?.[0] || profile.email?.[0] || '?'}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-black text-slate-900 truncate uppercase tracking-tight">
+                            {profile.displayName || "Unknown User"}
+                            {profile.uid === collabNoteData?.ownerId && <span className="ml-2 text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full">OWNER</span>}
+                          </div>
+                          <div className="text-[10px] font-medium text-slate-400 truncate">{profile.email}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="p-8 bg-slate-50 border-t border-slate-100">
+                <button 
+                  onClick={() => setShowCollabModal(false)}
+                  className="w-full py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  Close Settings
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

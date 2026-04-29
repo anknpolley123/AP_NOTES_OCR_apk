@@ -76,6 +76,7 @@ export const createCollaborativeNote = async (text: string, title: string, folde
     text,
     ownerId: auth.currentUser.uid,
     collaborators: [],
+    invitedEmails: [],
     pinned: false,
     folderId: folderId || null,
     createdAt: Date.now(),
@@ -119,6 +120,29 @@ export const joinCollaborativeNote = async (noteId: string) => {
     } else {
       throw new Error("Note not found");
     }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `notes/${noteId}`);
+  }
+};
+
+export const getUserProfiles = async (uids: string[]) => {
+  if (uids.length === 0) return [];
+  try {
+    const q = query(collection(db, 'users'), where('uid', 'in', uids));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => doc.data());
+  } catch (error) {
+    console.error("Error fetching user profiles:", error);
+    return [];
+  }
+};
+
+export const inviteCollaboratorByEmail = async (noteId: string, email: string) => {
+  try {
+    const noteRef = doc(db, 'notes', noteId);
+    await updateDoc(noteRef, {
+      invitedEmails: arrayUnion(email)
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `notes/${noteId}`);
   }
