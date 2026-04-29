@@ -19,8 +19,10 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install deps
-        run: npm install
+      - - name: Clean install (fix Tailwind bug)
+  run: |
+    rm -rf node_modules package-lock.json
+    npm install
 
       - name: Build web app
         run: npm run build
