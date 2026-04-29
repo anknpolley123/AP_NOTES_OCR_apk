@@ -262,8 +262,6 @@ jobs:
             cordova-app/platforms/android/app/build/outputs/apk/**/*.apk
             cordova-app/*.apk
           draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   notify:
     needs: [ build-gradle, build-cordova ]
