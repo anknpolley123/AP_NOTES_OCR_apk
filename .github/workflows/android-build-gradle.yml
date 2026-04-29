@@ -133,8 +133,6 @@ EOF
         draft: false
         prerelease: false
         generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.AP_NOTES_APK }}
 
     - name: Upload to artifacts (Debug)
       if: failure()
