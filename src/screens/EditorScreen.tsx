@@ -6,7 +6,7 @@ import {
   FolderClosed, Mic, MicOff, PenTool, Pin, Users, Link as LinkIcon, UserPlus, LogIn, FileSpreadsheet,
   Presentation, Plus, Highlighter, Eraser as EraserIcon, Cloud, MoreHorizontal, BookOpen, 
   MoreVertical, AlignLeft, ChevronDown, Strikethrough, Smile, Scan, FileUp, Settings, Type,
-  ChevronLeft, LayoutGrid, PenLine, Settings2, Grid3X3, Minus, Square, Circle, Play, Pause, StopCircle
+  ChevronLeft, LayoutGrid, PenLine, Settings2, Grid3X3, Minus, Square, Circle, Play, Pause, StopCircle, ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -17,7 +17,7 @@ import Layout from '../components/Layout';
 import { saveNote, updateNote, getNotes, softDeleteNote, Note, getFolders, Folder } from '../services/storage';
 import { exportToDocx } from '../services/docxService';
 import { createPDF } from '../services/pdfService';
-import { summarizeText, refineText, extractActions, generateImage, SummaryOptions } from '../services/aiService';
+import { summarizeText, refineText, extractActions, generateImage, generateDocument, SummaryOptions } from '../services/aiService';
 import { auth, db, loginWithGoogle, createCollaborativeNote, updateCollaborativeNote, joinCollaborativeNote } from '../services/firebaseService';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { saveAs } from 'file-saver';
@@ -44,6 +44,8 @@ export default function EditorScreen() {
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [audioURL, setAudioURL] = useState<string | null>(null);
   const [showCollabModal, setShowCollabModal] = useState(false);
   const [collabNoteData, setCollabNoteData] = useState<any>(null);
@@ -55,6 +57,11 @@ export default function EditorScreen() {
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showImageGenModal, setShowImageGenModal] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [showDocGenModal, setShowDocGenModal] = useState(false);
+  const [showNoteTemplateModal, setShowNoteTemplateModal] = useState(false);
+  const [docPrompt, setDocPrompt] = useState('');
+  const [docType, setDocType] = useState('Report');
+  const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
   const [pageTemplate, setPageTemplate] = useState<'plain' | 'lined' | 'grid' | 'dots'>('plain');
   const [penColor, setPenColor] = useState('#000000');
   const [penWidth, setPenWidth] = useState(2);
@@ -489,8 +496,8 @@ export default function EditorScreen() {
     updateText(newText);
   };
 
-  const handleAiAction = async (action: 'summarize' | 'refinement' | 'actions' | 'generate_image') => {
-    if (!text.trim() && action !== 'generate_image') return;
+  const handleAiAction = async (action: 'summarize' | 'refinement' | 'actions' | 'generate_image' | 'generate_document') => {
+    if (!text.trim() && action !== 'generate_image' && action !== 'generate_document') return;
     
     if (action === 'generate_image') {
       setShowAiMenu(false);
@@ -501,6 +508,12 @@ export default function EditorScreen() {
     if (action === 'summarize') {
       setShowAiMenu(false);
       setShowSummaryModal(true);
+      return;
+    }
+
+    if (action === 'generate_document') {
+      setShowAiMenu(false);
+      setShowDocGenModal(true);
       return;
     }
 
@@ -567,6 +580,147 @@ export default function EditorScreen() {
     }
   };
 
+  const handleGenerateDocument = async () => {
+    if (!docPrompt.trim()) return;
+    setIsGeneratingDoc(true);
+    try {
+      setAiStatus(`GENERATING ${docType.toUpperCase()}...`);
+      setIsAiProcessing(true);
+      const result = await generateDocument(docPrompt, docType);
+      
+      if (text.trim()) {
+        updateText(text + "\n\n---\n" + result);
+      } else {
+        updateText(result);
+        if (!title.trim()) {
+           setTitle(docType + ": " + (docPrompt.substring(0, 30) + "..."));
+        }
+      }
+      
+      setShowDocGenModal(false);
+      setDocPrompt('');
+    } catch (error) {
+      console.error(error);
+      alert("Failed to generate document. Please try again.");
+    } finally {
+      setIsGeneratingDoc(false);
+      setIsAiProcessing(false);
+      setAiStatus('');
+    }
+  };
+
+  const NOTE_TEMPLATES = [
+    {
+      id: 'meeting',
+      name: 'Meeting Minutes',
+      description: 'Agenda, attendees, and action items.',
+      icon: <Users className="w-5 h-5 text-blue-500" />,
+      content: `# Meeting Minutes: [Subject]
+**Date:** ${new Date().toLocaleDateString()}
+**Location:** [Room/Zoom]
+**Attendees:** 
+- [Name]
+
+## Agenda
+1. [Topic 1]
+2. [Topic 2]
+
+## Discussion
+- [Point A]
+- [Point B]
+
+## Action Items
+- [ ] [Task] - @[Person]
+- [ ] [Task] - @[Person]
+
+## Next Steps
+- [Next Meeting Date]`
+    },
+    {
+      id: 'project',
+      name: 'Project Plan',
+      description: 'Objectives, timeline, and resources.',
+      icon: <LayoutGrid className="w-5 h-5 text-purple-500" />,
+      content: `# Project Plan: [Project Name]
+**Status:** 🟡 Planning
+**Owner:** [Name]
+
+## 1. Objectives
+- [Primary goal]
+- [Secondary goal]
+
+## 2. Scope
+- [In scope]
+- [Out of scope]
+
+## 3. Timeline & Milestones
+- [Date] - Milestone 1
+- [Date] - Milestone 2
+
+## 4. Resources
+- [Team Member] - [Role]
+
+## 5. Risk Assessment
+- [Risk] -> [Mitigation]`
+    },
+    {
+      id: 'journal',
+      name: 'Journal Entry',
+      description: 'Daily reflection and gratitude.',
+      icon: <PenLine className="w-5 h-5 text-pink-500" />,
+      content: `# Journal Entry: ${new Date().toLocaleDateString()}
+**Mood:** [Select: Grateful | Focused | Energetic | Tired]
+
+## Reflection
+[Write about your day...]
+
+## Gratitude
+- [Something you're thankful for]
+- [Someone you appreciate]
+
+## Tomorrow's Focus
+1. [Primary goal]
+2. [Secondary goal]
+
+> "The best way to predict the future is to create it."`
+    },
+    {
+      id: 'brainstorm',
+      name: 'Brainstorming',
+      description: 'Unstructured idea capture.',
+      icon: <Sparkles className="w-5 h-5 text-yellow-500" />,
+      content: `# Brainstorm Session: [Topic]
+**Problem Statement:** [What are we trying to solve?]
+
+## Initial Ideas
+- [Idea 1]
+- [Idea 2]
+
+## Deep Dive
+### Idea A
+[Details, pros/cons]
+
+### Idea B
+[Details, pros/cons]
+
+## Selection (Top 3)
+1. [Winner]
+2. [Runner up]
+3. [Wildcard]`
+    }
+  ];
+
+  const applyTemplate = (templateContent: string, templateName: string) => {
+    if (text.trim() && !window.confirm("This will overwrite your current content. Continue?")) {
+      return;
+    }
+    updateText(templateContent);
+    if (!title.trim()) {
+      setTitle(templateName);
+    }
+    setShowNoteTemplateModal(false);
+  };
+
   const toggleListening = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     
@@ -617,6 +771,7 @@ export default function EditorScreen() {
   const sigCanvas = React.useRef<SignatureCanvas>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const startRecordingAudio = async () => {
     try {
@@ -624,6 +779,7 @@ export default function EditorScreen() {
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      setRecordingTime(0);
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -637,9 +793,21 @@ export default function EditorScreen() {
         reader.onloadend = () => {
           const base64Audio = reader.result as string;
           const audioTag = `\n\n<audio controls src="${base64Audio}"></audio>\n\n`;
-          updateText(text + audioTag);
+          
+          const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
+          if (textarea) {
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const newText = text.substring(0, start) + audioTag + text.substring(end);
+            updateText(newText);
+          } else {
+            updateText(text + audioTag);
+          }
+          
           setAudioURL(URL.createObjectURL(audioBlob));
           setIsRecordingAudio(false);
+          if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+          setShowVoiceModal(false);
         };
         reader.readAsDataURL(audioBlob);
         
@@ -649,10 +817,21 @@ export default function EditorScreen() {
 
       mediaRecorder.start();
       setIsRecordingAudio(true);
+      setShowVoiceModal(true);
+      
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
     } catch (err) {
       console.error("Error accessing microphone:", err);
       alert("Could not access microphone. Please check permissions.");
     }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   const stopRecordingAudio = () => {
@@ -925,6 +1104,25 @@ export default function EditorScreen() {
                     <Palette className="w-4 h-4 text-pink-500" />
                     Magic Image (AI)
                   </button>
+                  <button 
+                    onClick={() => handleAiAction('generate_document')}
+                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    <BookOpen className="w-4 h-4 text-indigo-500" />
+                    Generate Doc (AI)
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setShowAiMenu(false);
+                      window.dispatchEvent(new CustomEvent('open-gemini-chat', { 
+                        detail: { message: `I'm working on this note: "${title}". Can you help me with it?\n\nContent:\n${text}` } 
+                      }));
+                    }}
+                    className="w-full flex items-center gap-3 p-3 hover:bg-blue-50 rounded-xl transition-colors text-blue-700 text-[10px] font-black uppercase tracking-widest border border-blue-100 mt-2"
+                  >
+                    <MessageSquareText className="w-4 h-4 text-blue-600" />
+                    Chat with Gemini
+                  </button>
                 </div>
               )}
            </button>
@@ -1029,6 +1227,22 @@ export default function EditorScreen() {
               </button>
               <button onClick={() => navigate('/ocr')} className="text-slate-400 hover:text-slate-700"><Scan className="w-6 h-6" /></button>
               <button onClick={() => setShowSignatureModal(true)} className="text-slate-400 hover:text-slate-700" title="Add Signature"><PenTool className="w-6 h-6" /></button>
+              <button 
+                onClick={() => setShowNoteTemplateModal(true)}
+                className="text-slate-400 hover:text-indigo-600 transition-colors"
+                title="Use Template"
+              >
+                <Grid3X3 className="w-6 h-6" />
+              </button>
+              <button 
+                onClick={() => window.dispatchEvent(new CustomEvent('open-gemini-chat', { 
+                  detail: { message: `I'm working on this note: "${title}". Can you help me with it?\n\nContent:\n${text}` } 
+                }))}
+                className="text-blue-500 hover:scale-110 transition-transform" 
+                title="Chat with Google Gemini"
+              >
+                <Sparkles className="w-6 h-6" />
+              </button>
               <button onClick={() => document.getElementById('file-import-bottom')?.click()} className="text-slate-400 hover:text-slate-700"><Plus className="w-6 h-6" /></button>
               <button onClick={() => navigate('/settings')} className="text-slate-400 hover:text-slate-700"><Settings className="w-6 h-6" /></button>
               <input id="file-import-bottom" type="file" className="hidden" accept=".txt,.pdf,.docx,image/*" onChange={handleImportFile} />
@@ -1039,29 +1253,79 @@ export default function EditorScreen() {
         </div>
       </footer>
 
-      {/* Enhanced Audio Recording Floating UI */}
+      {/* Voice Recording Modal */}
       <AnimatePresence>
-        {isRecordingAudio && (
-          <motion.div 
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[100] bg-white border border-slate-200 rounded-full shadow-2xl p-2 flex items-center gap-4 min-w-[280px]"
-          >
-            <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
-              <Mic className="w-5 h-5 text-white animate-pulse" />
-            </div>
-            <div className="flex-1">
-              <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Audio Bookmarking</div>
-              <div className="text-sm font-bold text-slate-800">Recording...</div>
-            </div>
-            <button 
-              onClick={stopRecordingAudio}
-              className="p-3 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-colors"
+        {showVoiceModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (isRecordingAudio) stopRecordingAudio();
+                setShowVoiceModal(false);
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[40px] w-full max-w-sm overflow-hidden shadow-2xl flex flex-col relative z-20 border border-slate-100"
             >
-              <StopCircle className="w-6 h-6" />
-            </button>
-          </motion.div>
+              <div className="p-8 bg-slate-900 flex flex-col items-center gap-6">
+                <div className="w-20 h-20 bg-red-500 rounded-full flex items-center justify-center relative">
+                   {isRecordingAudio && (
+                     <div className="absolute inset-x-0 inset-y-0 bg-red-500 rounded-full animate-ping opacity-25" />
+                   )}
+                   <Mic className="w-8 h-8 text-white" />
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-400 mb-2">Voice Recording</div>
+                  <h3 className="text-3xl font-black text-white tabular-nums tracking-tighter">
+                    {formatTime(recordingTime)}
+                  </h3>
+                </div>
+              </div>
+              
+              <div className="p-8 bg-white flex flex-col gap-4">
+                <div className="flex justify-center flex-wrap gap-2 mb-4">
+                  {[...Array(8)].map((_, i) => (
+                    <motion.div 
+                      key={i}
+                      animate={{ 
+                        height: isRecordingAudio ? [10, Math.random() * 40 + 10, 10] : 10 
+                      }}
+                      transition={{ 
+                        repeat: Infinity, 
+                        duration: 0.5, 
+                        delay: i * 0.05 
+                      }}
+                      className="w-1.5 bg-blue-500 rounded-full"
+                    />
+                  ))}
+                </div>
+                
+                <button 
+                  onClick={stopRecordingAudio}
+                  className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-blue-500/10 flex items-center justify-center gap-3"
+                >
+                  <StopCircle className="w-5 h-5" />
+                  Stop & Embed
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    if (isRecordingAudio) stopRecordingAudio();
+                    setShowVoiceModal(false);
+                  }}
+                  className="w-full py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  Cancel Recording
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -1159,6 +1423,148 @@ export default function EditorScreen() {
         </div>
       )}
 
+      {/* Note Template Modal */}
+      <AnimatePresence>
+        {showNoteTemplateModal && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowNoteTemplateModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[40px] w-full max-w-md overflow-hidden shadow-2xl flex flex-col relative z-20 border border-slate-100"
+            >
+              <div className="p-8 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Note Templates</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Select a blueprint for your note</p>
+                </div>
+                <button 
+                  onClick={() => setShowNoteTemplateModal(false)}
+                  className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+              
+              <div className="p-6 bg-white space-y-3">
+                {NOTE_TEMPLATES.map((template) => (
+                  <button 
+                    key={template.id}
+                    onClick={() => applyTemplate(template.content, template.name)}
+                    className="w-full p-4 rounded-[28px] border border-slate-100 hover:border-indigo-500 hover:shadow-xl transition-all group text-left flex items-center gap-4"
+                  >
+                    <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
+                      {template.icon}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-xs font-black uppercase tracking-widest text-slate-900">{template.name}</div>
+                      <div className="text-[10px] font-bold text-slate-400 mt-0.5">{template.description}</div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all" />
+                  </button>
+                ))}
+              </div>
+
+              <div className="p-6 bg-white border-t border-slate-50">
+                <button 
+                  onClick={() => setShowNoteTemplateModal(false)}
+                  className="w-full py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  Keep current content
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {showDocGenModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-[32px] w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 flex flex-col">
+            <div className="p-6 bg-slate-900 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Wand2 className="w-6 h-6 text-indigo-400" />
+                <h3 className="text-white font-black uppercase tracking-widest text-sm">AI Document Architect</h3>
+              </div>
+              <button 
+                onClick={() => setShowDocGenModal(false)}
+                className="text-white/40 hover:text-white transition-colors"
+                disabled={isGeneratingDoc}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Document Type</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['Report', 'Article', 'Proposal', 'Essay', 'Script'].map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => setDocType(type)}
+                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                          docType === type 
+                            ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20 scale-105' 
+                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                        }`}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Write your prompt</label>
+                  <textarea
+                    value={docPrompt}
+                    onChange={(e) => setDocPrompt(e.target.value)}
+                    placeholder="e.g. A comprehensive market analysis report for EV industry in 2024..."
+                    className="w-full h-32 bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all resize-none shadow-inner"
+                    disabled={isGeneratingDoc}
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setShowDocGenModal(false)}
+                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 rounded-2xl transition-colors border border-slate-100"
+                  disabled={isGeneratingDoc}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleGenerateDocument}
+                  disabled={isGeneratingDoc || !docPrompt.trim()}
+                  className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/10"
+                >
+                  {isGeneratingDoc ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      Architecting...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-indigo-400" />
+                      Build Document
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Summary Options Modal */}
       {showSummaryModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
@@ -1235,36 +1641,61 @@ export default function EditorScreen() {
         </div>
       )}
 
-      {/* Signature & Modals Kept (integrated in Menu/Actions) */}
+      {/* Signature Modal */}
       {showSignatureModal && (
-        <div id="signature-modal-overlay" className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-          <div id="signature-modal-container" className="bg-white w-full max-w-sm rounded-[32px] overflow-hidden shadow-2xl animate-in zoom-in duration-200">
-            <div className="p-1 bg-slate-50">
-              <SignatureCanvas 
-                ref={sigCanvas} 
-                penColor='black' 
-                canvasProps={{ 
-                  width: 400, 
-                  height: 250, 
-                  className: 'sigCanvas w-full rounded-2xl bg-white',
-                  id: 'signature-canvas'
-                }} 
-              />
+        <div 
+          id="signature-modal-overlay" 
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
+          onClick={() => setShowSignatureModal(false)}
+        >
+          <div 
+            id="signature-modal-container" 
+            className="bg-white w-full max-w-sm rounded-[40px] overflow-hidden shadow-2xl animate-in zoom-in duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 bg-slate-900 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <PenTool className="w-5 h-5 text-blue-400" />
+                <h3 className="text-white font-black uppercase tracking-widest text-sm">Add Signature</h3>
+              </div>
+              <button 
+                onClick={() => setShowSignatureModal(false)}
+                className="text-white/40 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div className="p-6 grid grid-cols-2 gap-3">
+            
+            <div className="p-4 bg-slate-50">
+              <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-inner">
+                <SignatureCanvas 
+                  ref={sigCanvas} 
+                  penColor='black' 
+                  canvasProps={{ 
+                    width: 400, 
+                    height: 250, 
+                    className: 'sigCanvas w-full h-[250px]',
+                    id: 'signature-canvas'
+                  }} 
+                />
+              </div>
+              <p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-4">Draw your signature above</p>
+            </div>
+
+            <div className="p-6 grid grid-cols-2 gap-3 bg-white">
               <button 
                 id="clear-signature-btn"
                 onClick={clearSignature} 
-                className="bg-slate-100 py-3 rounded-2xl font-bold text-slate-600 hover:bg-slate-200 transition-colors"
+                className="bg-slate-100 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-600 hover:bg-slate-200 transition-all"
               >
                 Clear
               </button>
               <button 
                 id="apply-signature-btn"
                 onClick={saveSignature} 
-                className="bg-blue-600 py-3 rounded-2xl font-bold text-white hover:bg-blue-700 transition-colors"
+                className="bg-slate-900 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white hover:bg-slate-800 transition-all shadow-lg shadow-blue-500/10"
               >
-                Apply
+                Apply Signature
               </button>
             </div>
           </div>

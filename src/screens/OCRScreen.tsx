@@ -1,6 +1,7 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Camera as CameraIcon, RefreshCw, Check, X, Upload, ScanLine, RotateCw, Sun, Contrast, FileText, Download } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Camera as CameraIcon, RefreshCw, Check, X, Upload, ScanLine, RotateCw, Sun, Contrast, FileText, Download, Wand2, Type, Hash } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Cropper, { Area, Point } from 'react-easy-crop';
 import * as pdfjs from 'pdfjs-dist';
@@ -21,6 +22,8 @@ export default function OCRScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [showFormatModal, setShowFormatModal] = useState(false);
+  const [ocrResult, setOcrResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pdfPages, setPdfPages] = useState<string[]>([]);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
@@ -190,7 +193,8 @@ export default function OCRScreen() {
       if (!croppedImage) throw new Error("Failed to crop image");
       
       const text = await recognizeText(croppedImage);
-      navigate('/editor', { state: { ocrText: text, type: 'scan' } });
+      setOcrResult(text);
+      setShowFormatModal(true);
     } catch (err) {
       console.error(err);
       setError("Failed to recognize text.");
@@ -208,13 +212,33 @@ export default function OCRScreen() {
         const text = await recognizeText(pdfPages[i]);
         combinedText += `\n--- PAGE ${i + 1} ---\n${text}\n`;
       }
-      navigate('/editor', { state: { ocrText: combinedText, type: 'scan' } });
+      setOcrResult(combinedText);
+      setShowFormatModal(true);
     } catch (err) {
       console.error(err);
       setError("Failed to process batch OCR.");
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleFormatSelect = async (format: 'text' | 'markdown' | 'pdf') => {
+    if (!ocrResult) return;
+    
+    if (format === 'pdf') {
+      try {
+        await createPDF(ocrResult, "OCR_Result_" + new Date().getTime());
+        navigate('/'); // Navigate home after successful PDF generation
+      } catch (err) {
+        setError("Failed to generate PDF");
+      }
+    } else {
+      const finalResult = format === 'markdown' 
+        ? `# OCR RESULT\n\n${ocrResult}\n\n*Generated on ${new Date().toLocaleString()}*`
+        : ocrResult;
+      navigate('/editor', { state: { ocrText: finalResult, type: 'scan' } });
+    }
+    setShowFormatModal(false);
   };
 
   const reset = () => {
@@ -478,6 +502,85 @@ export default function OCRScreen() {
           </div>
         </div>
       )}
+
+      {/* Format Selection Modal */}
+      <AnimatePresence>
+        {showFormatModal && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => { setShowFormatModal(false); setOcrResult(null); }}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-xl"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[40px] w-full max-w-md overflow-hidden shadow-2xl flex flex-col relative z-10"
+            >
+              <div className="p-10 text-center border-b border-slate-100">
+                 <div className="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                    <Check className="w-8 h-8 text-blue-600" />
+                 </div>
+                 <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter mb-2">Recognition Complete</h3>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Choose your desired output format</p>
+              </div>
+              
+              <div className="p-4 bg-slate-50 flex flex-col gap-3">
+                 <button 
+                    onClick={() => handleFormatSelect('text')}
+                    className="w-full bg-white p-6 rounded-[28px] border border-slate-200 hover:border-blue-500 hover:shadow-lg transition-all group text-left flex items-center gap-4"
+                 >
+                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center group-hover:bg-blue-50 transition-colors">
+                       <Type className="w-6 h-6 text-slate-400 group-hover:text-blue-500" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-widest text-slate-900">Plain Text</div>
+                      <div className="text-[10px] font-bold text-slate-400">Open in the full editor</div>
+                    </div>
+                 </button>
+  
+                 <button 
+                    onClick={() => handleFormatSelect('markdown')}
+                    className="w-full bg-white p-6 rounded-[28px] border border-slate-200 hover:border-blue-500 hover:shadow-lg transition-all group text-left flex items-center gap-4"
+                 >
+                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center group-hover:bg-blue-50 transition-colors">
+                       <Hash className="w-6 h-6 text-slate-400 group-hover:text-blue-500" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-widest text-slate-900">Markdown Format</div>
+                      <div className="text-[10px] font-bold text-slate-400">Add headers and rich formatting</div>
+                    </div>
+                 </button>
+  
+                 <button 
+                    onClick={() => handleFormatSelect('pdf')}
+                    className="w-full bg-white p-6 rounded-[28px] border border-slate-200 hover:border-blue-500 hover:shadow-lg transition-all group text-left flex items-center gap-4"
+                 >
+                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center group-hover:bg-blue-50 transition-colors">
+                       <Download className="w-6 h-6 text-slate-400 group-hover:text-blue-500" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-widest text-slate-900">Direct to PDF</div>
+                      <div className="text-[10px] font-bold text-slate-400">Download result immediately</div>
+                    </div>
+                 </button>
+              </div>
+  
+              <div className="p-6 bg-white">
+                 <button 
+                    onClick={() => { setShowFormatModal(false); setOcrResult(null); }}
+                    className="w-full py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-red-500 transition-colors"
+                 >
+                    Discard Results
+                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <canvas ref={canvasRef} className="hidden" />
 

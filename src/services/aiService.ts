@@ -53,6 +53,24 @@ export const extractActions = async (text: string): Promise<string> => {
   }
 };
 
+export const generateDocument = async (prompt: string, type: string): Promise<string> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Generate a full ${type} based on the following prompt. 
+The output should be in Markdown format, well-structured with headers, subheaders, and detailed content. 
+Be comprehensive and professional.
+
+Prompt:
+${prompt}`,
+    });
+    return response.text || "Failed to generate document.";
+  } catch (error) {
+    console.error("Document generation error:", error);
+    throw new Error("AI service is currently unavailable.");
+  }
+};
+
 export const generateImage = async (prompt: string): Promise<string> => {
   try {
     const response = await ai.models.generateContent({

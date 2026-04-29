@@ -5,7 +5,7 @@ import {
   Plus, Camera as CameraIcon, Search, LayoutGrid, Download, 
   Network, Mic, Settings, FolderClosed, MoreVertical, TrendingUp,
   Menu, Trash2, Share2, FileClock, X, ChevronRight, PenLine, FileText, Lock,
-  Zap, Save, Pin, Cloud, FileSpreadsheet, Presentation, FileCode
+  Zap, Save, Pin, Cloud, FileSpreadsheet, Presentation, FileCode, Sparkles
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
@@ -259,6 +259,16 @@ export default function HomeScreen() {
                 <span className="font-bold flex-1 text-left">All notes</span>
               </button>
               
+              <button 
+                onClick={() => { window.dispatchEvent(new CustomEvent('open-gemini-chat')); setIsSidebarOpen(false); }}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl text-[var(--text-main)] hover:bg-blue-600/10 transition-all font-bold group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center group-hover:bg-blue-500">
+                  <Sparkles className="w-4 h-4 text-blue-500 group-hover:text-white" />
+                </div>
+                <span className="flex-1 text-left">Ask Google Gemini</span>
+              </button>
+
               <button className="w-full flex items-center gap-4 p-4 rounded-2xl text-[var(--text-main)] opacity-50 cursor-not-allowed">
                 <Share2 className="w-5 h-5" />
                 <span className="font-bold flex-1 text-left uppercase text-[10px]">Shared notes</span>
@@ -353,6 +363,13 @@ export default function HomeScreen() {
              <TrendingUp className="w-4 h-4 text-blue-500" /> Insight Active
           </div>
           <div className="flex gap-4">
+             <button
+               onClick={() => window.dispatchEvent(new CustomEvent('open-gemini-chat'))}
+               className="p-2 bg-blue-500/10 text-blue-500 rounded-xl hover:bg-blue-500 hover:text-white transition-all flex items-center gap-2"
+             >
+               <Sparkles className="w-4 h-4" />
+               <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Ask AI</span>
+             </button>
              {isSearchVisible ? (
                <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full animate-in slide-in-from-right-4">
                   <Search className="w-4 h-4 text-slate-400" />

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { MessageSquare, X, Send, Bot, User, Loader2, Sparkles, MinusCircle, Maximize2 } from 'lucide-react';
+import { MessageSquare, X, Send, Bot, User, Loader2, Sparkles, MinusCircle, Maximize2, FileText, PenLine } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 
@@ -19,6 +19,17 @@ export default function AIAssistant() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOpenChat = (e: any) => {
+      setIsOpen(true);
+      if (e.detail?.message) {
+        setInput(e.detail.message);
+      }
+    };
+    window.addEventListener('open-gemini-chat', handleOpenChat);
+    return () => window.removeEventListener('open-gemini-chat', handleOpenChat);
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -81,18 +92,18 @@ export default function AIAssistant() {
           >
             {/* Header */}
             <div className="bg-slate-900 p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                  <Bot className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-white text-sm font-black uppercase tracking-widest">Gemini AI</h3>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                    <span className="text-white/50 text-[10px] font-bold uppercase tracking-tight">Active</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-full flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <Sparkles className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-white text-[10px] font-black uppercase tracking-[0.2em]">Google Gemini</h3>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse" />
+                      <span className="text-white/50 text-[8px] font-black uppercase tracking-widest">Advanced AI Active</span>
+                    </div>
                   </div>
                 </div>
-              </div>
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => setIsMinimized(!isMinimized)}
@@ -128,6 +139,23 @@ export default function AIAssistant() {
                         <p className="text-slate-500 text-[11px] mt-1">
                           Draft a note, summarize a doc, or just chat.
                         </p>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 gap-2 w-full max-w-[240px]">
+                        {[
+                          { text: "Summarize my last note", icon: <FileText className="w-3 h-3" /> },
+                          { text: "Help me write a report", icon: <PenLine className="w-3 h-3" /> },
+                          { text: "Explain Quantum Physics", icon: <Sparkles className="w-3 h-3 text-blue-500" /> }
+                        ].map((s, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => { setInput(s.text); }}
+                            className="flex items-center gap-2 p-3 bg-white border border-slate-100 rounded-xl text-[10px] font-bold text-slate-600 hover:border-blue-500 hover:shadow-md transition-all text-left"
+                          >
+                            {s.icon}
+                            {s.text}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
