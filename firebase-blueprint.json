@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "A collaborative note document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "text": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "collaborators": { 
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "pinned": { "type": "boolean" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "folderId": { "type": "string" }
+      },
+      "required": ["id", "title", "text", "ownerId", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User metadata"
+    },
+    "/notes/{noteId}": {
+      "schema": "Note",
+      "description": "Collaborative notes"
+    }
+  }
+}

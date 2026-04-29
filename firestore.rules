@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    
+    function isOwner(resourceData) {
+      return isSignedIn() && resourceData.ownerId == request.auth.uid;
+    }
+    
+    function isCollaborator(resourceData) {
+      return isSignedIn() && (resourceData.collaborators.hasAny([request.auth.uid]));
+    }
+
+    function canAccessNote(resourceData) {
+      return isOwner(resourceData) || isCollaborator(resourceData);
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- User Validation ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) &&
+             data.uid == request.auth.uid &&
+             data.email is string && data.email.size() <= 256;
+    }
+
+    // --- Note Validation ---
+    function isValidNote(data) {
+      return data.keys().hasAll(['id', 'title', 'text', 'ownerId', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.text is string && data.text.size() <= 100000 &&
+             data.ownerId == request.auth.uid &&
+             data.createdAt is number &&
+             data.updatedAt is number &&
+             (data.get('collaborators', []) is list) &&
+             (data.get('pinned', false) is bool);
+    }
+
+    // --- Collections ---
+
+    // /users/{userId}
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create, update: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming());
+      allow delete: if false;
+    }
+
+    // /notes/{noteId}
+    match /notes/{noteId} {
+      allow get: if canAccessNote(existing());
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || resource.data.collaborators.hasAny([request.auth.uid]));
+      
+      allow create: if isSignedIn() && isValidNote(incoming()) && isValidId(noteId);
+      
+      allow update: if isSignedIn() && (
+        // Action: Edit Content (Owner or Collaborator)
+        (canAccessNote(existing()) && incoming().diff(existing()).affectedKeys().hasOnly(['text', 'title', 'updatedAt', 'pinned', 'folderId'])) ||
+        // Action: Manage Collaborators (Owner Only)
+        (isOwner(existing()) && incoming().diff(existing()).affectedKeys().hasOnly(['collaborators', 'updatedAt']))
+      ) && isValidNote(incoming());
+      
+      allow delete: if isOwner(existing());
+    }
+
+    // Connection test collection
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

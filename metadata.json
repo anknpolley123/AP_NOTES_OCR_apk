@@ -1,0 +1,6 @@
+{
+  "name": "AP_NOTES",
+  "description": "A powerful OCR-enabled notes application. Scan handwritten or printed notes using AI and save them as organized digits.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": []
+}
