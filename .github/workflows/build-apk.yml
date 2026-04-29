@@ -1,4 +1,4 @@
-name: Build APK from Web App
+name: Build APK (WebView Wrapper)
 
 on:
   push:
@@ -6,40 +6,92 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-apk:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install dependencies
+      - name: Install deps
         run: npm install
 
       - name: Build web app
         run: npm run build
 
-      # Install Bubblewrap (TWA tool)
-      - name: Install Bubblewrap
-        run: npm install -g @bubblewrap/cli
+      # Install Java + Android SDK
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-      # Initialize TWA project (auto config)
-      - name: Init TWA
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Create Android project dynamically
+      - name: Create Android Project
         run: |
-          bubblewrap init --manifest=https://your-site-url.com/manifest.json || true
+          mkdir android-app
+          cd android-app
 
-      # Build APK
+          # Create basic Gradle project
+          gradle init --type basic
+
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/java/com/example/app
+
+          # Copy web build into assets
+          cp -r ../dist/* app/src/main/assets/
+
+          # Create MainActivity
+          cat > app/src/main/java/com/example/app/MainActivity.java <<EOF
+          package com.example.app;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebView;
+
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  WebView webView = new WebView(this);
+                  webView.getSettings().setJavaScriptEnabled(true);
+                  webView.loadUrl("file:///android_asset/index.html");
+                  setContentView(webView);
+              }
+          }
+          EOF
+
+          # Create AndroidManifest
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<EOF
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.example.app">
+              <application android:label="MyApp">
+                  <activity android:name=".MainActivity">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
       - name: Build APK
         run: |
-          bubblewrap build
+          cd android-app
+          gradle build
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: ./**/*.apk
+          name: apk
+          path: android-app/**/*.apk
