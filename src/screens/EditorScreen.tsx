@@ -8,7 +8,7 @@ import {
   MoreVertical, AlignLeft, ChevronDown, Strikethrough, Smile, Scan, FileUp, Settings, Type,
   ChevronLeft, LayoutGrid, PenLine, Settings2, Grid3X3, Minus, Square, Circle, Play, Pause, StopCircle, ChevronRight,
   Replace, Languages, MessageSquare, History, Palette, AlignCenter, AlignRight, Underline,
-  MousePointer2, Shapes, Table, ListTodo, Brush, Pen
+  MousePointer2, Shapes, Table, ListTodo, Brush, Pen, Outdent, Indent, Maximize2, Minimize2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -81,6 +81,11 @@ export default function EditorScreen() {
   const [targetLang, setTargetLang] = useState('Spanish');
   const [commentText, setCommentText] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
+  const [textColor, setTextColor] = useState('#000000');
+  const [highlightColor, setHighlightColor] = useState('transparent');
+  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('left');
+  const [toolbarPosition, setToolbarPosition] = useState<'bottom' | 'top'>('bottom');
+  const [showToolbar, setShowToolbar] = useState(true);
   const [refinedText, setRefinedText] = useState('');
   const [docPrompt, setDocPrompt] = useState('');
   const [docType, setDocType] = useState('Report');
@@ -456,7 +461,7 @@ export default function EditorScreen() {
     </div>
   );
 
-  const formatText = (style: 'bold' | 'italic' | 'underline' | 'strikethrough') => {
+  const applyFormatting = (style: 'bold' | 'italic' | 'underline' | 'strikethrough') => {
     const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
     if (!textarea) return;
 
@@ -624,6 +629,60 @@ export default function EditorScreen() {
       setIsAiProcessing(false);
       setAiStatus('');
     }
+  };
+
+  const handleIndent = (direction: 'in' | 'out') => {
+    const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const lines = text.substring(start, end).split('\n');
+    
+    const processedLines = lines.map(line => {
+      if (direction === 'in') return '    ' + line;
+      return line.startsWith('    ') ? line.substring(4) : line.startsWith('\t') ? line.substring(1) : line;
+    });
+
+    const newText = text.substring(0, start) + processedLines.join('\n') + text.substring(end);
+    updateText(newText);
+  };
+
+  const handleInsertImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      const imgMarkdown = `\n![Uploaded Image](${base64})\n`;
+      const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
+      if (textarea) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const newText = text.substring(0, start) + imgMarkdown + text.substring(end);
+        updateText(newText);
+      } else {
+        updateText(text + imgMarkdown);
+      }
+    };
+    reader.readAsDataURL(file);
+    setShowAiMenu(false);
+  };
+
+  const handleInsertPDF = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // For MVP, we'll just add a link/description, but in a real app we'd upload and render
+    const pdfMarkdown = `\n[📄 PDF Appendix: ${file.name}](#)\n*PDF attached for annotation support*\n`;
+    const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newText = text.substring(0, start) + pdfMarkdown + text.substring(end);
+      updateText(newText);
+    } else {
+      updateText(text + pdfMarkdown);
+    }
+    setShowAiMenu(false);
   };
 
   const handleGenerateImage = async () => {
@@ -1119,259 +1178,262 @@ export default function EditorScreen() {
           </div>
         </div>
       </header>
+           {/* Advanced Formatting & Tools Sidebar/Toolbar */}
+      <AnimatePresence>
+        {showToolbar && (
+          <motion.footer 
+            initial={toolbarPosition === 'bottom' ? { y: 100 } : { y: -100 }}
+            animate={{ y: 0 }}
+            exit={toolbarPosition === 'bottom' ? { y: 100 } : { y: -100 }}
+            className={`fixed ${toolbarPosition === 'bottom' ? 'bottom-0' : 'top-14'} inset-x-0 bg-[#f8f9fc]/95 backdrop-blur-xl border-t border-slate-200 z-[60] pb-safe shadow-2xl transition-all`}
+          >
+            {/* Row 1: Formatting Presets, Colors, and Pro Tools */}
+            <div className="h-12 border-b border-slate-100 flex items-center justify-between px-6 overflow-x-auto no-scrollbar">
+               <div className="flex items-center gap-6 min-w-max">
+                  <div className="flex gap-1.5">
+                    <button onClick={() => applyFormatting('bold')} className="p-2 hover:bg-slate-200 rounded-xl transition-all"><Bold className="w-4 h-4 text-slate-700" /></button>
+                    <button onClick={() => applyFormatting('italic')} className="p-2 hover:bg-slate-200 rounded-xl transition-all"><Italic className="w-4 h-4 text-slate-700" /></button>
+                    <button onClick={() => applyFormatting('underline')} className="p-2 hover:bg-slate-200 rounded-xl transition-all"><Underline className="w-4 h-4 text-slate-700" /></button>
+                    <button onClick={() => applyFormatting('strikethrough')} className="p-2 hover:bg-slate-200 rounded-xl transition-all"><Strikethrough className="w-4 h-4 text-slate-700" /></button>
+                  </div>
+                  
+                  <div className="w-px h-6 bg-slate-200 mx-2" />
+                  
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Text Color</span>
+                      <input 
+                        type="color" 
+                        value={textColor} 
+                        onChange={(e) => setTextColor(e.target.value)}
+                        className="w-6 h-6 rounded-lg border border-slate-200 p-0 overflow-hidden cursor-pointer" 
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Highlight</span>
+                      <input 
+                        type="color" 
+                        value={highlightColor === 'transparent' ? '#ffffff' : highlightColor} 
+                        onChange={(e) => setHighlightColor(e.target.value)}
+                        className="w-6 h-6 rounded-lg border border-slate-200 p-0 overflow-hidden cursor-pointer" 
+                      />
+                    </div>
+                  </div>
 
-      {/* Drawing/Pen Toolbar matched to screenshot */}
-      <div className="h-14 bg-[#f1f3f8] flex items-center justify-between px-3 shrink-0 overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-2">
-           <button 
-             onClick={() => setActiveTool('text')}
-             className={`p-2 rounded-xl transition-all ${activeTool === 'text' ? 'bg-slate-200 shadow-sm border border-slate-300' : 'text-slate-500 hover:bg-slate-200'}`}
-           >
-             <LayoutGrid className="w-5 h-5" />
-           </button>
-           <button 
-             onClick={() => {
-               if (activeTool === 'pen' || activeTool === 'pencil') setShowPenSettings(!showPenSettings);
-               setActiveTool('pen');
-             }}
-             className={`p-2 rounded-xl transition-all relative ${activeTool === 'pen' || activeTool === 'pencil' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
-           >
-             <PenLine className="w-5 h-5" style={{ color: penColor }} />
-             {(activeTool === 'pen' || activeTool === 'pencil') && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
-             
-             {showPenSettings && (activeTool === 'pen' || activeTool === 'pencil') && (
-               <div className="absolute bottom-12 left-0 z-[120] bg-white border border-slate-100 rounded-[24px] shadow-2xl p-4 min-w-[220px] animate-in slide-in-from-bottom-2 duration-200">
-                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Styles & Colors</div>
-                 <div className="grid grid-cols-4 gap-2 mb-4">
-                   <button onClick={() => { setPenStyle('fountain'); setActiveTool('pen'); }} className={`p-2 rounded-lg border ${penStyle === 'fountain' && activeTool === 'pen' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`} title="Fountain"><Pen className="w-4 h-4" /></button>
-                   <button onClick={() => { setPenStyle('calligraphy'); setActiveTool('pen'); }} className={`p-2 rounded-lg border ${penStyle === 'calligraphy' && activeTool === 'pen' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`} title="Calligraphy"><Brush className="w-4 h-4" /></button>
-                   <button onClick={() => { setPenStyle('marker'); setActiveTool('pen'); }} className={`p-2 rounded-lg border ${penStyle === 'marker' && activeTool === 'pen' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`} title="Marker"><Highlighter className="w-4 h-4" /></button>
-                   <button onClick={() => { setActiveTool('pencil'); }} className={`p-2 rounded-lg border ${activeTool === 'pencil' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`} title="Pencil"><PenLine className="w-4 h-4" /></button>
-                 </div>
+                  <div className="w-px h-6 bg-slate-200 mx-2" />
 
-                 <div className="flex flex-wrap gap-2 mb-4">
-                   {['#000000', '#ef4444', '#3b82f6', '#22c55e', '#a855f7'].map(c => (
-                     <button 
-                       key={c}
-                       onClick={(e) => { e.stopPropagation(); setPenColor(c); }}
-                       className={`w-6 h-6 rounded-full border-2 ${penColor === c ? 'border-slate-800 scale-110' : 'border-transparent'}`}
-                       style={{ backgroundColor: c }}
-                     />
-                   ))}
-                   <input type="color" value={penColor} onChange={e => setPenColor(e.target.value)} className="w-6 h-6 rounded-full border-none p-0 overflow-hidden cursor-pointer" />
-                 </div>
-                 <div className="space-y-2 text-left">
-                   <div className="flex justify-between text-[10px] font-bold text-slate-500">
-                     <span>THICKNESS</span>
-                     <span>{penWidth}px</span>
-                   </div>
-                   <input 
-                     type="range" min="1" max="10" 
-                     value={penWidth} 
-                     onChange={(e) => setPenWidth(parseInt(e.target.value))}
-                     className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800"
-                   />
-                 </div>
+                  <div className="flex items-center gap-4 min-w-[140px]">
+                    <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Size</span>
+                    <input 
+                      type="range" min="8" max="72" value={fontSize} 
+                      onChange={(e) => setFontSize(parseInt(e.target.value))}
+                      className="flex-1 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-900" 
+                    />
+                    <span className="text-[10px] font-bold text-slate-700 w-6 text-center">{fontSize}</span>
+                  </div>
                </div>
-             )}
-           </button>
-           <button 
-             onClick={() => {
-               if (activeTool === 'highlighter') setShowHighlighterSettings(!showHighlighterSettings);
-               setActiveTool('highlighter');
-             }}
-             className={`p-2 rounded-xl transition-all relative ${activeTool === 'highlighter' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
-           >
-             <Highlighter className="w-5 h-5" style={{ color: highlighterColor }} />
-             {activeTool === 'highlighter' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
 
-             {showHighlighterSettings && activeTool === 'highlighter' && (
-               <div className="absolute bottom-12 left-0 z-[120] bg-white border border-slate-100 rounded-[24px] shadow-2xl p-4 min-w-[220px] animate-in slide-in-from-bottom-2 duration-200 text-left">
-                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Highlighter Styles</div>
-                 <div className="flex gap-2 mb-4">
-                   <button onClick={() => setHighlighterStyle('round')} className={`flex-1 p-2 rounded-lg border ${highlighterStyle === 'round' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`}><Circle className="w-4 h-4 mx-auto" /></button>
-                   <button onClick={() => setHighlighterStyle('square')} className={`flex-1 p-2 rounded-lg border ${highlighterStyle === 'square' ? 'border-blue-500 bg-blue-50' : 'border-slate-100'}`}><Square className="w-4 h-4 mx-auto" /></button>
-                 </div>
-                 <button onClick={() => setIsStraightLineMode(!isStraightLineMode)} className={`w-full py-2 mb-4 rounded-xl text-[8px] font-bold uppercase tracking-widest border transition-all ${isStraightLineMode ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'border-slate-100 text-slate-400'}`}>Straight Line Mode: {isStraightLineMode ? 'ON' : 'OFF'}</button>
-                 <div className="flex flex-wrap gap-2 mb-4">
-                   {['#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#c4b5fd'].map(c => (
-                     <button 
-                       key={c}
-                       onClick={(e) => { e.stopPropagation(); setHighlighterColor(c); }}
-                       className={`w-6 h-6 rounded-full border-2 ${highlighterColor === c ? 'border-slate-800 scale-110' : 'border-transparent'}`}
-                       style={{ backgroundColor: c }}
-                     />
-                   ))}
-                 </div>
-                 <div className="space-y-2">
-                   <div className="flex justify-between text-[10px] font-bold text-slate-500">
-                     <span>THICKNESS</span>
-                     <span>{highlighterWidth}px</span>
-                   </div>
-                   <input 
-                     type="range" min="5" max="30" 
-                     value={highlighterWidth} 
-                     onChange={(e) => setHighlighterWidth(parseInt(e.target.value))}
-                     className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-yellow-500"
-                   />
-                 </div>
+               <div className="flex items-center gap-3">
+                 <button 
+                  onClick={() => setToolbarPosition(toolbarPosition === 'bottom' ? 'top' : 'bottom')}
+                  className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+                  title="Move Toolbar (Top/Bottom)"
+                 >
+                   {toolbarPosition === 'bottom' ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
+                 </button>
+                 <button 
+                  onClick={() => setShowToolbar(false)}
+                  className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                  title="Hide Toolbar"
+                 >
+                   <X className="w-4 h-4" />
+                 </button>
                </div>
-             )}
-           </button>
-           <button 
-             onClick={() => {
-               if (activeTool === 'eraser') {
-                 if (eraserMode === 'area') setEraserMode('stroke');
-                 else if (eraserMode === 'stroke') setEraserMode('highlighterOnly');
-                 else setEraserMode('area');
-               }
-               setActiveTool('eraser');
-             }}
-             className={`p-2 rounded-xl transition-all relative ${activeTool === 'eraser' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
-           >
-             <EraserIcon className={`w-5 h-5 ${eraserMode === 'highlighterOnly' ? 'text-yellow-600' : 'text-red-400'}`} />
-             {activeTool === 'eraser' && (
-               <>
-                 <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />
-                 <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[8px] font-bold px-2 py-1 rounded-lg uppercase whitespace-nowrap z-50 shadow-xl">{eraserMode} Mode</div>
-               </>
-             )}
-           </button>
-           <button 
-             onClick={() => setActiveTool('lasso')}
-             className={`p-2 rounded-xl transition-all relative ${activeTool === 'lasso' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
-             title="Lasso Selection"
-           >
-             <MousePointer2 className="w-5 h-5 text-indigo-500" />
-             {activeTool === 'lasso' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
-           </button>
-           <button 
-             onClick={() => setActiveTool('shapes')}
-             className={`p-2 rounded-xl transition-all relative ${activeTool === 'shapes' ? 'bg-white shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}
-             title="Auto-Shape Tool"
-           >
-             <Shapes className="w-5 h-5 text-orange-500" />
-             {activeTool === 'shapes' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full" />}
-           </button>
-           <button 
-              onClick={() => setShowImageGenModal(true)}
-              className="p-2 text-pink-500 hover:bg-pink-50 rounded-xl transition-all"
-              title="Magic Image (AI)"
-            >
-              <Sparkles className="w-5 h-5" />
-            </button>
-        </div>
+            </div>
 
-        <div className="flex items-center gap-1.5">
-           <button onClick={undo} disabled={historyIndex <= 0} className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl disabled:opacity-20"><Undo2 className="w-5 h-5" /></button>
-           <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl disabled:opacity-20"><Redo2 className="w-5 h-5" /></button>
-           <div className="w-px h-6 bg-slate-300 mx-1" />
-           <button 
-              onClick={insertTable}
-              className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl"
-              title="Insert Table"
-            >
-              <Table className="w-5 h-5" />
-            </button>
-            <button 
-              onClick={insertChecklist}
-              className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl"
-              title="Checklist"
-            >
-              <ListTodo className="w-5 h-5" />
-            </button>
-           <div className="w-px h-6 bg-slate-300 mx-1" />
-           <button 
-             onClick={() => setShowAiMenu(!showAiMenu)}
-             className={`p-2 rounded-xl transition-colors relative ${showAiMenu ? 'bg-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
-           >
-             <Wand2 className="w-5 h-5" />
-             {showAiMenu && (
-                <div className="absolute top-12 right-0 z-[100] bg-white border border-slate-100 rounded-2xl p-2 shadow-2xl min-w-[200px] animate-in fade-in zoom-in duration-200">
+            {/* Row 2: Pen Tools, Eraser, AI, and Insets */}
+            <div className="h-16 flex items-center justify-between px-6">
+              <div className="flex items-center gap-3 overflow-x-auto no-scrollbar">
+                <div className="flex bg-slate-200/50 p-1 rounded-2xl border border-slate-100">
                   <button 
-                    onClick={() => handleAiAction('summarize')}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
+                    onClick={() => {
+                      if (activeTool === 'pen' || activeTool === 'pencil') setShowPenSettings(!showPenSettings);
+                      setActiveTool('pen');
+                    }}
+                    className={`p-2.5 rounded-xl transition-all relative ${activeTool === 'pen' || activeTool === 'pencil' ? 'bg-white shadow-md text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
                   >
-                    <MessageSquareText className="w-4 h-4 text-blue-500" />
-                    Summarize Note
-                  </button>
-                  <button 
-                    onClick={() => handleAiAction('auto_format')}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <LayoutGrid className="w-4 h-4 text-orange-500" />
-                    Auto-Format (AI)
-                  </button>
-                  <button 
-                    onClick={() => handleAiAction('spell_check')}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <BookOpen className="w-4 h-4 text-emerald-500" />
-                    Spell Check Assist
+                    <PenLine className="w-5 h-5" style={{ color: penColor }} />
+                    {showPenSettings && (activeTool === 'pen' || activeTool === 'pencil') && (
+                        <div className={`absolute ${toolbarPosition === 'bottom' ? 'bottom-16' : 'top-16'} left-0 z-[120] bg-white border border-slate-100 rounded-[28px] shadow-2xl p-5 min-w-[240px] animate-in zoom-in-95 duration-200`}>
+                           <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-4">Pen Architecture</div>
+                           <div className="grid grid-cols-4 gap-2 mb-5">
+                              <button onClick={() => { setPenStyle('fountain'); setActiveTool('pen'); }} className={`p-3 rounded-xl border ${penStyle === 'fountain' && activeTool === 'pen' ? 'border-blue-500 bg-blue-50/50' : 'border-slate-100'}`}><Pen className="w-4 h-4 mx-auto" /></button>
+                              <button onClick={() => { setPenStyle('calligraphy'); setActiveTool('pen'); }} className={`p-3 rounded-xl border ${penStyle === 'calligraphy' && activeTool === 'pen' ? 'border-blue-500 bg-blue-50/50' : 'border-slate-100'}`}><Brush className="w-4 h-4 mx-auto" /></button>
+                              <button onClick={() => { setPenStyle('marker'); setActiveTool('pen'); }} className={`p-3 rounded-xl border ${penStyle === 'marker' && activeTool === 'pen' ? 'border-blue-500 bg-blue-50/50' : 'border-slate-100'}`}><Highlighter className="w-4 h-4 mx-auto" /></button>
+                              <button onClick={() => { setActiveTool('pencil'); }} className={`p-3 rounded-xl border ${activeTool === 'pencil' ? 'border-blue-500 bg-blue-50/50' : 'border-slate-100'}`}><PenLine className="w-4 h-4 mx-auto" /></button>
+                           </div>
+                           <div className="flex flex-wrap gap-2 mb-5">
+                              {['#000000', '#ef4444', '#3b82f6', '#22c55e', '#a855f7'].map(c => (
+                                <button key={c} onClick={() => setPenColor(c)} className={`w-7 h-7 rounded-full border-2 ${penColor === c ? 'border-slate-900 scale-110 shadow-lg' : 'border-transparent'}`} style={{ backgroundColor: c }} />
+                              ))}
+                              <input type="color" value={penColor} onChange={e => setPenColor(e.target.value)} className="w-7 h-7 rounded-full border-none p-0 overflow-hidden cursor-pointer" />
+                           </div>
+                           <div className="space-y-4">
+                              <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                                <span>Thickness</span>
+                                <span>{penWidth}px</span>
+                              </div>
+                              <input type="range" min="1" max="15" value={penWidth} onChange={(e) => setPenWidth(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-100 rounded-full appearance-none cursor-pointer accent-slate-900" />
+                           </div>
+                        </div>
+                    )}
                   </button>
                   <button 
                     onClick={() => {
-                       setIsAiProcessing(true);
-                       setAiStatus('CLEANING UP HANDWRITING...');
-                       setTimeout(() => { setIsAiProcessing(false); setAiStatus(''); }, 1500);
+                      if (activeTool === 'highlighter') setShowHighlighterSettings(!showHighlighterSettings);
+                      setActiveTool('highlighter');
                     }}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
+                    className={`p-2.5 rounded-xl transition-all relative ${activeTool === 'highlighter' ? 'bg-white shadow-md text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
                   >
-                    <Wand2 className="w-4 h-4 text-blue-400" />
-                    Straighten Handwriting
-                  </button>
-                  <button 
-                    onClick={() => handleAiAction('auto_format')}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest border-b border-slate-50"
-                  >
-                    <PenLine className="w-4 h-4 text-purple-500" />
-                    Handwriting to Text
-                  </button>
-                  <button 
-                    onClick={() => handleAiAction('actions')}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <ListChecks className="w-4 h-4 text-green-500" />
-                    Extract Actions
-                  </button>
-                  <button 
-                    onClick={() => handleAiAction('generate_image')}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <Palette className="w-4 h-4 text-pink-500" />
-                    Magic Image (AI)
-                  </button>
-                  <button 
-                    onClick={() => handleAiAction('generate_document')}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <BookOpen className="w-4 h-4 text-indigo-500" />
-                    Generate Doc (AI)
-                  </button>
-                  <button 
-                    onClick={() => { setShowAiMenu(false); setShowTranslateModal(true); }}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <Languages className="w-4 h-4 text-orange-500" />
-                    Translate Note
+                    <Highlighter className="w-5 h-5" style={{ color: highlighterColor }} />
+                    {showHighlighterSettings && activeTool === 'highlighter' && (
+                        <div className={`absolute ${toolbarPosition === 'bottom' ? 'bottom-16' : 'top-16'} left-0 z-[120] bg-white border border-slate-100 rounded-[28px] shadow-2xl p-5 min-w-[240px] animate-in zoom-in-95 duration-200`}>
+                           <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-4">Highlighter Studio</div>
+                           <div className="flex gap-2 mb-5">
+                             <button onClick={() => setHighlighterStyle('round')} className={`flex-1 p-3 rounded-xl border ${highlighterStyle === 'round' ? 'border-yellow-500 bg-yellow-50/50' : 'border-slate-100'}`}><Circle className="w-4 h-4 mx-auto" /></button>
+                             <button onClick={() => setHighlighterStyle('square')} className={`flex-1 p-3 rounded-xl border ${highlighterStyle === 'square' ? 'border-yellow-500 bg-yellow-50/50' : 'border-slate-100'}`}><Square className="w-4 h-4 mx-auto" /></button>
+                           </div>
+                           <button onClick={() => setIsStraightLineMode(!isStraightLineMode)} className={`w-full py-3 mb-5 rounded-2xl text-[9px] font-black uppercase tracking-widest border transition-all ${isStraightLineMode ? 'bg-yellow-100 border-yellow-200 text-yellow-800' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>Straight Line Mode</button>
+                           <div className="flex flex-wrap gap-2 mb-5">
+                             {['#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#c4b5fd'].map(c => (
+                               <button key={c} onClick={() => setHighlighterColor(c)} className={`w-7 h-7 rounded-full border-2 ${highlighterColor === c ? 'border-yellow-600 scale-110 shadow-lg' : 'border-transparent'}`} style={{ backgroundColor: c }} />
+                             ))}
+                           </div>
+                           <div className="space-y-4">
+                             <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                               <span>Thickness</span>
+                               <span>{highlighterWidth}px</span>
+                             </div>
+                             <input type="range" min="10" max="60" value={highlighterWidth} onChange={(e) => setHighlighterWidth(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-100 rounded-full appearance-none cursor-pointer accent-yellow-500" />
+                           </div>
+                        </div>
+                    )}
                   </button>
                   <button 
                     onClick={() => {
-                      setShowAiMenu(false);
-                      window.dispatchEvent(new CustomEvent('open-gemini-chat', { 
-                        detail: { message: `I'm working on this note: "${title}". Can you help me with it?\n\nContent:\n${text}` } 
-                      }));
+                      if (activeTool === 'eraser') {
+                        if (eraserMode === 'area') setEraserMode('stroke');
+                        else if (eraserMode === 'stroke') setEraserMode('highlighterOnly');
+                        else setEraserMode('area');
+                      }
+                      setActiveTool('eraser');
                     }}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-blue-50 rounded-xl transition-colors text-blue-700 text-[10px] font-black uppercase tracking-widest border border-blue-100 mt-2"
+                    className={`p-2.5 rounded-xl transition-all relative ${activeTool === 'eraser' ? 'bg-white shadow-md text-slate-900 border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`}
                   >
-                    <MessageSquareText className="w-4 h-4 text-blue-600" />
-                    Chat with Gemini
+                    <EraserIcon className={`w-5 h-5 ${eraserMode === 'highlighterOnly' ? 'text-yellow-600' : 'text-red-500'}`} />
+                    {activeTool === 'eraser' && (
+                       <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] font-black px-3 py-1.5 rounded-xl uppercase tracking-tighter whitespace-nowrap shadow-2xl transition-all z-[130]">
+                         Eraser: {eraserMode}
+                       </div>
+                    )}
                   </button>
                 </div>
-              )}
-           </button>
-        </div>
-      </div>
+
+                <div className="w-px h-8 bg-slate-200 mx-1" />
+
+                <div className="flex gap-1.5">
+                  <button onClick={() => setTextAlign('left')} className={`p-2.5 rounded-xl transition-all ${textAlign === 'left' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}><AlignLeft className="w-5 h-5" /></button>
+                  <button onClick={() => setTextAlign('center')} className={`p-2.5 rounded-xl transition-all ${textAlign === 'center' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}><AlignCenter className="w-5 h-5" /></button>
+                  <button onClick={() => setTextAlign('right')} className={`p-2.5 rounded-xl transition-all ${textAlign === 'right' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}><AlignRight className="w-5 h-5" /></button>
+                </div>
+
+                <div className="w-px h-8 bg-slate-200 mx-1" />
+
+                <div className="flex gap-1.5">
+                  <button onClick={() => handleIndent('out')} className="p-2.5 hover:bg-slate-200 rounded-xl transition-all"><Outdent className="w-5 h-5 text-slate-600" /></button>
+                  <button onClick={() => handleIndent('in')} className="p-2.5 hover:bg-slate-200 rounded-xl transition-all"><Indent className="w-5 h-5 text-slate-600" /></button>
+                </div>
+
+                <div className="w-px h-8 bg-slate-200 mx-1" />
+
+                <div className="flex gap-1.5 items-center">
+                   <button onClick={undo} disabled={historyIndex <= 0} className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl disabled:opacity-20"><Undo2 className="w-5 h-5" /></button>
+                   <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl disabled:opacity-20"><Redo2 className="w-5 h-5" /></button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                 <button 
+                  onClick={insertTable}
+                  className="hidden md:flex items-center gap-3 px-5 py-3 bg-white border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all text-[10px] font-black uppercase tracking-widest text-slate-600 group"
+                 >
+                   <Table className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" />
+                   Insert Table
+                 </button>
+                 <div className="relative">
+                    <button 
+                      onClick={() => setShowAiMenu(!showAiMenu)}
+                      className={`w-12 h-12 rounded-[22px] flex items-center justify-center transition-all shadow-xl group ${showAiMenu ? 'bg-white border border-slate-100' : 'bg-slate-900 text-white hover:scale-105 active:scale-95'}`}
+                    >
+                      {showAiMenu ? <X className="w-6 h-6 text-slate-500" /> : <Plus className="w-6 h-6" />}
+                    </button>
+                    {showAiMenu && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: toolbarPosition === 'bottom' ? 20 : -20, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        className={`absolute ${toolbarPosition === 'bottom' ? 'bottom-16' : 'top-16'} right-0 z-[150] bg-white border border-slate-100 rounded-[32px] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.15)] p-3 min-w-[260px]`}
+                      >
+                         <div className="p-5 border-b border-slate-50">
+                            <h4 className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Insert & Automate</h4>
+                         </div>
+                         <div className="grid grid-cols-2 gap-2 p-2">
+                            <label className="flex flex-col items-center gap-2 p-4 hover:bg-slate-50 rounded-[24px] group cursor-pointer">
+                               <input type="file" accept="image/*" className="hidden" onChange={handleInsertImage} />
+                               <div className="w-10 h-10 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-500 group-hover:scale-110 transition-all"><FileUp className="w-5 h-5" /></div>
+                               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Image</span>
+                            </label>
+                            <label className="flex flex-col items-center gap-2 p-4 hover:bg-slate-50 rounded-[24px] group cursor-pointer">
+                               <input type="file" accept="application/pdf" className="hidden" onChange={handleInsertPDF} />
+                               <div className="w-10 h-10 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 group-hover:scale-110 transition-all"><FileText className="w-5 h-5" /></div>
+                               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">PDF</span>
+                            </label>
+                            <button onClick={() => { setShowAiMenu(false); handleAiAction('summarize'); }} className="flex flex-col items-center gap-2 p-4 hover:bg-slate-50 rounded-[24px] group">
+                               <div className="w-10 h-10 bg-purple-50 rounded-2xl flex items-center justify-center text-purple-500 group-hover:scale-110 transition-all"><Sparkles className="w-5 h-5" /></div>
+                               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">AI Summary</span>
+                            </button>
+                            <button onClick={() => { setShowAiMenu(false); handleAiAction('auto_format'); }} className="flex flex-col items-center gap-2 p-4 hover:bg-slate-50 rounded-[24px] group">
+                               <div className="w-10 h-10 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-500 group-hover:scale-110 transition-all"><LayoutGrid className="w-5 h-5" /></div>
+                               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Clean Up</span>
+                            </button>
+                         </div>
+                         <div className="p-2">
+                            <button onClick={() => { setShowAiMenu(false); setShowTranslateModal(true); }} className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 rounded-[24px] group transition-all">
+                               <div className="w-10 h-10 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-500 group-hover:rotate-12 transition-transform"><Languages className="w-5 h-5" /></div>
+                               <div className="text-left">
+                                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-700">Translate Note</div>
+                                  <div className="text-[8px] font-medium text-slate-400">Powered by Galaxy AI</div>
+                               </div>
+                            </button>
+                         </div>
+                      </motion.div>
+                    )}
+                 </div>
+              </div>
+            </div>
+          </motion.footer>
+        )}
+      </AnimatePresence>
+
+      {!showToolbar && (
+        <motion.button 
+          initial={{ scale: 0, rotate: -45 }}
+          animate={{ scale: 1, rotate: 0 }}
+          onClick={() => setShowToolbar(true)}
+          className="fixed bottom-10 right-10 w-16 h-16 bg-slate-900 text-white rounded-[28px] flex items-center justify-center shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-[70] hover:scale-110 active:scale-95 transition-all"
+        >
+          <PenTool className="w-7 h-7" />
+        </motion.button>
+      )}
 
       {/* Find & Replace Bar */}
       <AnimatePresence>
@@ -1479,7 +1541,14 @@ export default function EditorScreen() {
           <div className="max-w-6xl mx-auto h-full min-h-[100vh] relative">
             <textarea 
               placeholder="Start writing..." 
-              className="w-full h-full p-8 sm:p-12 lg:p-20 outline-none resize-none text-xl text-slate-700 leading-relaxed bg-transparent relative z-10 font-normal min-h-[80vh]"
+              className={`w-full h-full p-8 sm:p-12 lg:p-20 outline-none resize-none text-slate-700 leading-relaxed bg-transparent relative z-10 min-h-[80vh]`}
+              style={{ 
+                fontSize: `${fontSize}px`, 
+                color: textColor, 
+                backgroundColor: highlightColor,
+                textAlign: textAlign,
+                fontWeight: 'normal'
+              }}
               value={text}
               onChange={(e) => updateText(e.target.value)}
               id="note-text-textarea"
@@ -1578,10 +1647,10 @@ export default function EditorScreen() {
                  {fontSize} <ChevronDown className="w-3 h-3" />
               </div>
               <div className="w-px h-5 bg-slate-200" />
-              <button onClick={() => formatText('bold')} className="text-sm font-black text-slate-700 px-1">B</button>
-              <button onClick={() => formatText('italic')} className="text-sm italic font-serif text-slate-700 px-1">I</button>
-              <button onClick={() => formatText('underline')} className="text-sm underline text-slate-700 px-1">U</button>
-              <button onClick={() => formatText('strikethrough')} className="text-sm line-through text-slate-700 px-1">T</button>
+              <button onClick={() => applyFormatting('bold')} className="text-sm font-black text-slate-700 px-1">B</button>
+              <button onClick={() => applyFormatting('italic')} className="text-sm italic font-serif text-slate-700 px-1">I</button>
+              <button onClick={() => applyFormatting('underline')} className="text-sm underline text-slate-700 px-1">U</button>
+              <button onClick={() => applyFormatting('strikethrough')} className="text-sm line-through text-slate-700 px-1">T</button>
               <div className="relative inline-block">
                 <button 
                   onClick={() => setShowColorPicker(!showColorPicker)} 
