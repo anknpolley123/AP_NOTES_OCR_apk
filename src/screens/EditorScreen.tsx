@@ -27,6 +27,7 @@ import {
 import { auth, db, loginWithGoogle, createCollaborativeNote, updateCollaborativeNote, joinCollaborativeNote, getUserProfiles, inviteCollaboratorByEmail } from '../services/firebaseService';
 import { doc, onSnapshot, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore';
 import { saveAs } from 'file-saver';
+import { softHaptic, mediumHaptic } from '../lib/haptics';
 import * as XLSX from 'xlsx';
 import PptxGenJS from 'pptxgenjs';
 
@@ -224,6 +225,7 @@ export default function EditorScreen() {
 
   const undo = useCallback(() => {
     if (historyIndex > 0) {
+      softHaptic();
       const nextIndex = historyIndex - 1;
       setHistoryIndex(nextIndex);
       setText(history[nextIndex]);
@@ -232,6 +234,7 @@ export default function EditorScreen() {
 
   const redo = useCallback(() => {
     if (historyIndex < history.length - 1) {
+      softHaptic();
       const nextIndex = historyIndex + 1;
       setHistoryIndex(nextIndex);
       setText(history[nextIndex]);
@@ -1360,6 +1363,17 @@ export default function EditorScreen() {
                    <button onClick={undo} disabled={historyIndex <= 0} className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl disabled:opacity-20"><Undo2 className="w-5 h-5" /></button>
                    <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl disabled:opacity-20"><Redo2 className="w-5 h-5" /></button>
                 </div>
+
+                <div className="w-px h-8 bg-slate-200 mx-1" />
+
+                <button 
+                  onClick={() => { softHaptic(); handleAiAction('summarize'); }}
+                  className="flex items-center gap-2 px-3 py-2 hover:bg-blue-50 rounded-xl transition-all text-blue-600 group"
+                  title="AI Summarize"
+                >
+                  <Sparkles className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                  <span className="text-[10px] font-black uppercase tracking-widest hidden lg:block">Summarize</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-4">
@@ -1372,7 +1386,7 @@ export default function EditorScreen() {
                  </button>
                  <div className="relative">
                     <button 
-                      onClick={() => setShowAiMenu(!showAiMenu)}
+                      onClick={() => { softHaptic(); setShowAiMenu(!showAiMenu); }}
                       className={`w-12 h-12 rounded-[22px] flex items-center justify-center transition-all shadow-xl group ${showAiMenu ? 'bg-white border border-slate-100' : 'bg-slate-900 text-white hover:scale-105 active:scale-95'}`}
                     >
                       {showAiMenu ? <X className="w-6 h-6 text-slate-500" /> : <Plus className="w-6 h-6" />}
@@ -1534,14 +1548,14 @@ export default function EditorScreen() {
         </div>
 
         {isPreview ? (
-          <div className="p-8 sm:p-12 lg:p-20 prose prose-slate max-w-6xl mx-auto prose-img:rounded-3xl min-h-[100vh]">
+          <div className="p-4 sm:p-12 lg:p-20 prose prose-slate max-w-6xl mx-auto prose-img:rounded-3xl min-h-[100vh]">
             <ReactMarkdown rehypePlugins={[rehypeRaw]}>{text || "_Write something amazing..._"}</ReactMarkdown>
           </div>
         ) : (
           <div className="max-w-6xl mx-auto h-full min-h-[100vh] relative">
             <textarea 
               placeholder="Start writing..." 
-              className={`w-full h-full p-8 sm:p-12 lg:p-20 outline-none resize-none text-slate-700 leading-relaxed bg-transparent relative z-10 min-h-[80vh]`}
+              className={`w-full h-full p-4 sm:p-12 lg:p-20 outline-none resize-none text-slate-700 leading-relaxed bg-transparent relative z-10 min-h-[80vh]`}
               style={{ 
                 fontSize: `${fontSize}px`, 
                 color: textColor, 
@@ -2263,81 +2277,107 @@ export default function EditorScreen() {
         </div>
       )}
 
-      {/* Summary Options Modal */}
-      {showSummaryModal && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl border border-slate-100 flex flex-col">
-            <div className="p-6 bg-slate-900 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <MessageSquareText className="w-6 h-6 text-blue-500" />
-                <h3 className="text-white font-black uppercase tracking-widest text-sm">Summary Options</h3>
-              </div>
-              <button 
-                onClick={() => setShowSummaryModal(false)}
-                className="text-white/40 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-8 space-y-8">
-              {/* Length Selection */}
-              <div className="space-y-3">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Summary Length</label>
-                <div className="flex bg-slate-100 p-1.5 rounded-2xl gap-1">
-                  {(['short', 'medium', 'detailed'] as const).map((l) => (
-                    <button
-                      key={l}
-                      onClick={() => setSummaryOptions({ ...summaryOptions, length: l })}
-                      className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
-                        summaryOptions.length === l 
-                          ? 'bg-white text-blue-600 shadow-sm' 
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      {l}
-                    </button>
-                  ))}
+      {/* Summary Modal */}
+      <AnimatePresence>
+        {showSummaryModal && (
+          <div 
+            id="summary-modal-overlay" 
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
+            onClick={() => setShowSummaryModal(false)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              id="summary-modal-container" 
+              className="bg-white rounded-[40px] w-full max-w-md overflow-hidden shadow-[0_32px_64px_-16px_rgba(0,0,0,0.2)] border border-slate-100"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-8 bg-slate-900 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-500/20 rounded-2xl flex items-center justify-center text-blue-400">
+                    <Sparkles className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-black uppercase tracking-[0.2em] text-sm">AI Summarizer</h3>
+                    <p className="text-blue-300/40 text-[9px] font-bold uppercase tracking-widest">Configure Output</p>
+                  </div>
                 </div>
-              </div>
-
-              {/* Format Selection */}
-              <div className="space-y-3">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Output Format</label>
-                <div className="flex bg-slate-100 p-1.5 rounded-2xl gap-1">
-                  {(['bullet points', 'paragraph'] as const).map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => setSummaryOptions({ ...summaryOptions, format: f })}
-                      className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
-                        summaryOptions.format === f 
-                          ? 'bg-white text-blue-600 shadow-sm' 
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      {f}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-4 pt-4">
                 <button 
                   onClick={() => setShowSummaryModal(false)}
-                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 rounded-2xl transition-colors border border-slate-100"
+                  className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all"
                 >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleSummarize}
-                  className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/10"
-                >
-                  Summarize Now
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </div>
+              
+              <div className="p-8 space-y-8">
+                {/* Length Selection */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Target Length</label>
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{summaryOptions.length}</span>
+                  </div>
+                  <div className="flex bg-slate-100 p-1.5 rounded-[24px] gap-1">
+                    {(['short', 'medium', 'detailed'] as const).map((l) => (
+                      <button
+                        key={l}
+                        onClick={() => setSummaryOptions({ ...summaryOptions, length: l })}
+                        className={`flex-1 py-3.5 text-[10px] font-black uppercase tracking-widest rounded-[18px] transition-all duration-300 ${
+                          summaryOptions.length === l 
+                            ? 'bg-white text-slate-900 shadow-[0_4px_12px_rgba(0,0,0,0.05)] scale-[1.02]' 
+                            : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                      >
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Format Selection */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Output Format</label>
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{summaryOptions.format}</span>
+                  </div>
+                  <div className="flex bg-slate-100 p-1.5 rounded-[24px] gap-1">
+                    {(['bullet points', 'paragraph'] as const).map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => setSummaryOptions({ ...summaryOptions, format: f })}
+                        className={`flex-1 py-3.5 text-[10px] font-black uppercase tracking-widest rounded-[18px] transition-all duration-300 ${
+                          summaryOptions.format === f 
+                            ? 'bg-white text-slate-900 shadow-[0_4px_12px_rgba(0,0,0,0.05)] scale-[1.02]' 
+                            : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    onClick={() => setShowSummaryModal(false)}
+                    className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-[24px] transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleSummarize}
+                    className="flex-[1.5] py-5 bg-slate-900 text-white rounded-[24px] font-black uppercase text-[10px] tracking-[0.2em] hover:bg-slate-800 hover:shadow-2xl hover:scale-[1.02] active:scale-98 transition-all flex items-center justify-center gap-3 shadow-xl"
+                  >
+                    <Sparkles className="w-4 h-4 text-blue-400" />
+                    Generate Summary
+                  </button>
+                </div>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Signature Modal */}
       {showSignatureModal && (

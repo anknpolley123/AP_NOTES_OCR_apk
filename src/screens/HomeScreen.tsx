@@ -15,6 +15,7 @@ import { exportAllNotesToPDF } from '../services/pdfService';
 import { auth, db, loginWithGoogle } from '../services/firebaseService';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+import { softHaptic, mediumHaptic, successHaptic } from '../lib/haptics';
 
 export default function HomeScreen() {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -488,57 +489,38 @@ export default function HomeScreen() {
 
       <div className="fixed bottom-28 right-8 flex items-center gap-4 z-30">
         <button 
-          onClick={() => navigate('/ocr')}
+          onClick={() => { softHaptic(); navigate('/ocr'); }}
           className="bg-[var(--bg-button)] text-[var(--text-main)] w-14 h-14 rounded-[20px] shadow-2xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all border border-[var(--border-app)]"
           id="ocr-fab"
         >
           <CameraIcon className="w-6 h-6 text-blue-500" />
         </button>
         <button 
-          onClick={() => navigate('/editor')}
+          onClick={() => { mediumHaptic(); navigate('/editor'); }}
           className="bg-blue-600 text-white w-14 h-14 rounded-[20px] shadow-2xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
           id="add-fab"
         >
-          <PenLine className="w-6 h-6" />
+          <Plus className="w-6 h-6" />
         </button>
       </div>
 
-      {selectionMode && selectedNotes.length > 0 ? (
-        <div className="fixed bottom-0 left-0 right-0 h-20 bg-[var(--bg-card)] border-t border-[var(--border-app)] flex items-center justify-center gap-8 px-4 z-[60] animate-in slide-in-from-bottom duration-300">
-          <div onClick={() => handleBulkPin(true)} className="flex flex-col items-center gap-1 text-[var(--text-muted)] hover:text-blue-500 cursor-pointer transition-colors pointer-events-auto">
+      {selectionMode && selectedNotes.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 h-28 bg-[var(--bg-card)]/90 backdrop-blur-xl border-t border-[var(--border-app)] flex items-center justify-center gap-8 px-4 z-[60] animate-in slide-in-from-bottom duration-300 pb-safe">
+          <div onClick={() => { softHaptic(); handleBulkPin(true); }} className="flex flex-col items-center gap-1 text-[var(--text-muted)] hover:text-blue-500 cursor-pointer transition-colors pointer-events-auto">
              <Pin className="w-5 h-5" />
              <span className="text-[8px] font-black uppercase tracking-widest">Pin</span>
           </div>
-          <div onClick={() => handleBulkPin(false)} className="flex flex-col items-center gap-1 text-[var(--text-muted)] hover:text-blue-500 cursor-pointer transition-colors pointer-events-auto">
+          <div onClick={() => { softHaptic(); handleBulkPin(false); }} className="flex flex-col items-center gap-1 text-[var(--text-muted)] hover:text-blue-500 cursor-pointer transition-colors pointer-events-auto">
              <Pin className="w-5 h-5 opacity-40" />
              <span className="text-[8px] font-black uppercase tracking-widest">Unpin</span>
           </div>
-          <div className="flex flex-col items-center gap-1 text-[var(--text-muted)] hover:text-blue-500 cursor-pointer transition-colors">
+          <div onClick={() => { softHaptic(); alert('Sharing ' + selectedNotes.length + ' notes...'); }} className="flex flex-col items-center gap-1 text-[var(--text-muted)] hover:text-blue-500 cursor-pointer transition-colors pointer-events-auto">
              <Share2 className="w-5 h-5" />
              <span className="text-[8px] font-black uppercase tracking-widest">Share</span>
           </div>
-          <div onClick={handleBulkDelete} className="flex flex-col items-center gap-1 text-red-500 hover:text-red-600 cursor-pointer transition-colors pointer-events-auto">
+          <div onClick={() => { mediumHaptic(); handleBulkDelete(); }} className="flex flex-col items-center gap-1 text-red-500 hover:text-red-600 cursor-pointer transition-colors pointer-events-auto">
              <Trash2 className="w-5 h-5" />
              <span className="text-[8px] font-black uppercase tracking-widest">Delete</span>
-          </div>
-        </div>
-      ) : (
-        <div className="fixed bottom-0 left-0 right-0 h-20 bg-[var(--bg-card)] border-t border-[var(--border-app)] flex items-center justify-center gap-12 px-8 z-20 pointer-events-none md:pointer-events-auto">
-          <div className="flex flex-col items-center gap-1 text-blue-500 cursor-pointer pointer-events-auto">
-             <LayoutGrid className="w-5 h-5" />
-             <span className="text-[8px] font-black uppercase tracking-widest">Dash</span>
-          </div>
-          <div onClick={() => navigate('/knowledge')} className="flex flex-col items-center gap-1 text-[var(--text-muted)] hover:text-blue-500 cursor-pointer transition-colors pointer-events-auto">
-             <Network className="w-5 h-5" />
-             <span className="text-[8px] font-black uppercase tracking-widest">Graph</span>
-          </div>
-          <div onClick={() => navigate('/pdf-workspace')} className="flex flex-col items-center gap-1 text-[var(--text-muted)] hover:text-blue-500 cursor-pointer transition-colors pointer-events-auto">
-             <Download className="w-5 h-5" />
-             <span className="text-[8px] font-black uppercase tracking-widest">PDF</span>
-          </div>
-          <div onClick={() => navigate('/settings')} className="flex flex-col items-center gap-1 text-[var(--text-muted)] hover:text-blue-500 cursor-pointer pointer-events-auto">
-             <Settings className="w-5 h-5" />
-             <span className="text-[8px] font-black uppercase tracking-widest">Set</span>
           </div>
         </div>
       )}

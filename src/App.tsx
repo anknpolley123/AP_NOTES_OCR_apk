@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import HomeScreen from './screens/HomeScreen';
 import EditorScreen from './screens/EditorScreen';
 import OCRScreen from './screens/OCRScreen';
@@ -10,6 +10,7 @@ import RecycleBinScreen from './screens/RecycleBinScreen';
 import CloudStorageScreen from './screens/CloudStorageScreen';
 import PermissionOnboarding from './components/PermissionOnboarding';
 import AIAssistant from './components/AIAssistant';
+import BottomNav from './components/BottomNav';
 import { isOnboardingComplete } from './services/storage';
 import { auth, db } from './services/firebaseService';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -56,7 +57,20 @@ export default function App() {
 
   return (
     <Router>
-      <div className="bg-gray-100 min-h-screen font-sans selection:bg-blue-100">
+      <AppContent />
+    </Router>
+  );
+}
+
+function AppContent() {
+  const location = useLocation();
+  
+  // Routes where bottom nav should NOT be shown
+  const hideBottomNav = location.pathname.startsWith('/editor');
+
+  return (
+    <div className="bg-gray-100 min-h-screen font-sans selection:bg-blue-100 flex flex-col">
+      <div className="flex-1 overflow-hidden relative flex flex-col">
         <Routes>
           <Route path="/" element={<HomeScreen />} />
           <Route path="/editor" element={<EditorScreen />} />
@@ -68,8 +82,9 @@ export default function App() {
           <Route path="/recycle-bin" element={<RecycleBinScreen />} />
           <Route path="/cloud-storage" element={<CloudStorageScreen />} />
         </Routes>
-        <AIAssistant />
       </div>
-    </Router>
+      {!hideBottomNav && <BottomNav />}
+      <AIAssistant />
+    </div>
   );
 }

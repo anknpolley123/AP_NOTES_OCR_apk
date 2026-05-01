@@ -1,13 +1,14 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Camera as CameraIcon, RefreshCw, Check, X, Upload, ScanLine, RotateCw, Sun, Contrast, FileText, Download, Wand2, Type, Hash } from 'lucide-react';
+import { Camera as CameraIcon, RefreshCw, Check, X, Upload, ScanLine, RotateCw, Sun, Contrast, FileText, Download, Wand2, Type, Hash, Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Cropper, { Area, Point } from 'react-easy-crop';
 import * as pdfjs from 'pdfjs-dist';
 import Layout from '../components/Layout';
-import { recognizeText } from '../services/ocrService';
+import { recognizeText, improveHandwriting, cleanOcrText } from '../services/ocrService';
 import { createPDF } from '../services/pdfService';
+import { softHaptic, mediumHaptic, successHaptic } from '../lib/haptics';
 
 // Set up pdfjs worker
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -25,8 +26,10 @@ export default function OCRScreen() {
   const [showFormatModal, setShowFormatModal] = useState(false);
   const [ocrResult, setOcrResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scannedImages, setScannedImages] = useState<string[]>([]);
   const [pdfPages, setPdfPages] = useState<string[]>([]);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [aiMode, setAiMode] = useState<'none' | 'handwriting' | 'clean' | 'formal' | 'bullets'>('none');
   const navigate = useNavigate();
 
   // Cropper state
@@ -185,35 +188,77 @@ export default function OCRScreen() {
     return canvas.toDataURL('image/jpeg');
   };
 
-  const processOCR = async () => {
+  const handleAddToBatch = async () => {
     if (!capturedImage || !croppedAreaPixels) return;
-    setIsProcessing(true);
+    softHaptic();
     try {
       const croppedImage = await getCroppedImg(capturedImage, croppedAreaPixels, rotation, brightness, contrast);
-      if (!croppedImage) throw new Error("Failed to crop image");
-      
-      const text = await recognizeText(croppedImage);
-      setOcrResult(text);
-      setShowFormatModal(true);
+      if (croppedImage) {
+        setScannedImages([...scannedImages, croppedImage]);
+        reset();
+      }
     } catch (err) {
-      console.error(err);
-      setError("Failed to recognize text.");
-    } finally {
-      setIsProcessing(false);
+      setError("Failed to add page to batch");
     }
   };
 
-  const processBatchOCR = async () => {
-    if (pdfPages.length === 0) return;
+  const processOCR = async (isBatch: boolean = false) => {
+    const imagesToProcess = isBatch ? (scannedImages.length > 0 ? scannedImages : pdfPages) : [];
+    
+    // If not specific batch, handle the current single image
+    if (!isBatch && capturedImage && croppedAreaPixels) {
+      setIsProcessing(true);
+      try {
+        const croppedImage = await getCroppedImg(capturedImage, croppedAreaPixels, rotation, brightness, contrast);
+        if (!croppedImage) throw new Error("Failed to crop image");
+        
+        let text = await recognizeText(croppedImage);
+        
+        // Post-processing
+        if (aiMode === 'handwriting') {
+          text = await improveHandwriting(text);
+        } else if (aiMode !== 'none') {
+          const style = aiMode === 'bullets' ? 'bullet_points' : aiMode;
+          text = await cleanOcrText(text, style as any);
+        }
+
+        setOcrResult(text);
+        setShowFormatModal(true);
+        successHaptic();
+      } catch (err) {
+        console.error(err);
+        setError("Failed to recognize text.");
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    if (imagesToProcess.length === 0) return;
+    
     setIsProcessing(true);
     try {
       let combinedText = "";
-      for (let i = 0; i < pdfPages.length; i++) {
-        const text = await recognizeText(pdfPages[i]);
+      for (let i = 0; i < imagesToProcess.length; i++) {
+        let text = await recognizeText(imagesToProcess[i]);
+        
+        // Apply AI refinements per page if in handwriting mode
+        if (aiMode === 'handwriting') {
+          text = await improveHandwriting(text);
+        }
+        
         combinedText += `\n--- PAGE ${i + 1} ---\n${text}\n`;
       }
+
+      // Final cleanup for the whole document
+      if (aiMode !== 'none' && aiMode !== 'handwriting') {
+        const style = aiMode === 'bullets' ? 'bullet_points' : aiMode;
+        combinedText = await cleanOcrText(combinedText, style as any);
+      }
+
       setOcrResult(combinedText);
       setShowFormatModal(true);
+      successHaptic();
     } catch (err) {
       console.error(err);
       setError("Failed to process batch OCR.");
@@ -456,21 +501,54 @@ export default function OCRScreen() {
         )}
       </div>
 
+      {/* AI Mode Selector */}
+      {!isProcessing && (capturedImage || scannedImages.length > 0) && (
+        <div className="mt-4 mb-6">
+          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2 mb-3 block">AI Enhancement Mode</label>
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide px-1">
+            {[
+              { id: 'none', label: 'Standard', icon: <ScanLine className="w-4 h-4" /> },
+              { id: 'handwriting', label: 'Handwriting', icon: <Wand2 className="w-4 h-4" /> },
+              { id: 'clean', label: 'Clean', icon: <RefreshCw className="w-4 h-4" /> },
+              { id: 'formal', label: 'Formal', icon: <Type className="w-4 h-4" /> },
+              { id: 'bullets', label: 'Bullets', icon: <Hash className="w-4 h-4" /> }
+            ].map(mode => (
+              <button
+                key={mode.id}
+                onClick={() => { softHaptic(); setAiMode(mode.id as any); }}
+                className={`flex items-center gap-2 px-4 py-3 rounded-2xl whitespace-nowrap transition-all border font-black uppercase text-[10px] tracking-widest ${aiMode === mode.id ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'}`}
+              >
+                {mode.icon}
+                {mode.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {capturedImage && !isProcessing && (
         <div className="space-y-4">
-          <button 
-            onClick={handleScanToPdf}
-             className="w-full bg-slate-900 border border-white/10 py-5 rounded-[24px] font-black uppercase text-[12px] tracking-widest text-white flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-xl"
-          >
-            <Download className="w-4 h-4 text-blue-400" /> Save as PDF
-          </button>
+          <div className="grid grid-cols-2 gap-4">
+             <button 
+                onClick={handleAddToBatch}
+                className="bg-slate-900 border border-white/10 py-5 rounded-[24px] font-black uppercase text-[12px] tracking-widest text-white flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-xl"
+             >
+                <Plus className="w-4 h-4 text-blue-400" /> {scannedImages.length > 0 ? `Add Page (${scannedImages.length + 1})` : 'Add Page'}
+             </button>
+             <button 
+                onClick={handleScanToPdf}
+                className="bg-slate-900 border border-white/10 py-5 rounded-[24px] font-black uppercase text-[12px] tracking-widest text-white flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-xl"
+             >
+                <Download className="w-4 h-4 text-blue-400" /> Save as PDF
+             </button>
+          </div>
 
-          {pdfPages.length > 1 && (
+          {(pdfPages.length > 1 || scannedImages.length > 0) && (
             <button 
-              onClick={processBatchOCR}
+              onClick={() => processOCR(true)}
                className="w-full bg-blue-600/10 border border-blue-500/20 py-5 rounded-[24px] font-black uppercase text-[12px] tracking-widest text-blue-500 flex items-center justify-center gap-2 hover:bg-blue-600/20 transition-all shadow-xl"
             >
-              <FileText className="w-4 h-4" /> Batch OCR {pdfPages.length} Pages
+              <FileText className="w-4 h-4" /> Batch OCR {scannedImages.length || pdfPages.length} Pages
             </button>
           )}
 
@@ -483,7 +561,7 @@ export default function OCRScreen() {
               <X className="w-4 h-4" /> {isEditing ? 'CANCEL' : 'RETAKE'}
             </button>
             <button 
-              onClick={processOCR}
+              onClick={() => processOCR(false)}
               className="bg-blue-600 py-5 rounded-[24px] font-black uppercase text-[12px] tracking-widest text-white flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-xl shadow-blue-900/30"
               id="proceed-button"
             >
