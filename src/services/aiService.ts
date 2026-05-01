@@ -1,7 +1,18 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiClient: GoogleGenAI | null = null;
+
+function getAIClient() {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is required");
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
 
 export interface SummaryOptions {
   length: 'short' | 'medium' | 'detailed';
@@ -10,6 +21,7 @@ export interface SummaryOptions {
 
 export const summarizeText = async (text: string, options: SummaryOptions = { length: 'medium', format: 'bullet points' }): Promise<string> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Summarize the following note text.
@@ -29,6 +41,7 @@ ${text}`,
 
 export const refineText = async (text: string): Promise<string> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Refine the following note text to improve grammar, clarity, and flow. Preserve the original meaning and style, but make it more polished.\n\nNote content:\n${text}`,
@@ -42,6 +55,7 @@ export const refineText = async (text: string): Promise<string> => {
 
 export const extractActions = async (text: string): Promise<string> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Extract any actionable items, tasks, or follow-ups from the following note text. Format them as a Markdown checklist (- [ ] task). If no tasks are found, say "No clear tasks identified."\n\nNote content:\n${text}`,
@@ -55,6 +69,7 @@ export const extractActions = async (text: string): Promise<string> => {
 
 export const generateDocument = async (prompt: string, type: string): Promise<string> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Generate a full ${type} based on the following prompt. 
@@ -73,6 +88,7 @@ ${prompt}`,
 
 export const generateImage = async (prompt: string): Promise<string> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: [{
@@ -106,6 +122,7 @@ export const generateImage = async (prompt: string): Promise<string> => {
 
 export const translateText = async (text: string, targetLanguage: string): Promise<string> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Translate the following text to ${targetLanguage}. Maintain the original tone and markdown formatting if present.\n\nText:\n${text}`,
@@ -119,6 +136,7 @@ export const translateText = async (text: string, targetLanguage: string): Promi
 
 export const autoFormatText = async (text: string): Promise<string> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Transform the following messy notes or text into a professional document with clear headers, bullet points, and structure. Use bolding for emphasis. Keep it clean and formatted with Markdown.\n\nText:\n${text}`,
@@ -130,8 +148,38 @@ export const autoFormatText = async (text: string): Promise<string> => {
   }
 };
 
+export const transcribeAudio = async (base64Audio: string, mimeType: string = "audio/wav"): Promise<string> => {
+  try {
+    const ai = getAIClient();
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              inlineData: {
+                data: base64Audio,
+                mimeType: mimeType,
+              },
+            },
+            {
+              text: "Transcribe the audio accurately. Extract all spoken words into text. If there's music or noise, ignore it and focus on speech. Return only the transcription.",
+            },
+          ],
+        },
+      ],
+    });
+    return response.text || "No transcription available.";
+  } catch (error) {
+    console.error("Transcription error:", error);
+    throw new Error("AI transcription failed. Please try a shorter or clearer recording.");
+  }
+};
+
 export const spellCheckText = async (text: string): Promise<string> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Fix any spelling and grammatical errors in the following text. Preserve the original tone and strictly return the corrected text only.\n\nText:\n${text}`,

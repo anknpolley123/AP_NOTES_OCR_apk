@@ -24,6 +24,7 @@ import {
   generateDocument, translateText, autoFormatText, spellCheckText,
   SummaryOptions 
 } from '../services/aiService';
+import { VoiceRecorder } from '../components/VoiceRecorder';
 import { auth, db, loginWithGoogle, createCollaborativeNote, updateCollaborativeNote, joinCollaborativeNote, getUserProfiles, inviteCollaboratorByEmail } from '../services/firebaseService';
 import { doc, onSnapshot, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore';
 import { saveAs } from 'file-saver';
@@ -100,6 +101,9 @@ export default function EditorScreen() {
     length: 'medium',
     format: 'bullet points'
   });
+  const [summaryResult, setSummaryResult] = useState<string | null>(null);
+  const [showSummaryView, setShowSummaryView] = useState(false);
+  const [showAutoSummaryPrompt, setShowAutoSummaryPrompt] = useState(false);
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showTemplateMenu, setShowTemplateMenu] = useState(false);
@@ -264,6 +268,12 @@ export default function EditorScreen() {
     const data = await getFolders();
     setFolders(data);
   };
+
+  useEffect(() => {
+    if (text.length > 1500 && !summaryResult && !showAutoSummaryPrompt) {
+      setShowAutoSummaryPrompt(true);
+    }
+  }, [text, summaryResult]);
 
   const loadNote = async () => {
     const notes = await getNotes(true);
@@ -560,6 +570,11 @@ export default function EditorScreen() {
     updateText(newText);
   };
 
+  const handleVoiceTranscription = (transcription: string) => {
+    updateText(text + (text ? "\n\n" : "") + transcription);
+    softHaptic();
+  };
+
   const handleAiAction = async (action: 'summarize' | 'refinement' | 'actions' | 'generate_image' | 'generate_document' | 'auto_format' | 'spell_check') => {
     if (!text.trim() && action !== 'generate_image' && action !== 'generate_document') return;
     
@@ -618,13 +633,19 @@ export default function EditorScreen() {
     }
   };
 
-  const handleSummarize = async () => {
+  const handleSummarize = async (saveToMetadata: boolean = false) => {
     setIsAiProcessing(true);
     setShowSummaryModal(false);
     try {
       setAiStatus('SUMMARIZING CONTENT...');
       const result = await summarizeText(text, summaryOptions);
-      updateText(text + "\n\n---\n### AI Summary (" + summaryOptions.length + ", " + summaryOptions.format + ")\n" + result);
+      if (saveToMetadata) {
+        setSummaryResult(result);
+        setShowSummaryView(true);
+        setShowAutoSummaryPrompt(false);
+      } else {
+        updateText(text + "\n\n---\n### AI Summary (" + summaryOptions.length + ", " + summaryOptions.format + ")\n" + result);
+      }
     } catch (error) {
       console.error(error);
       alert("AI Service encountered an issue. Please try again.");
@@ -1377,6 +1398,9 @@ export default function EditorScreen() {
               </div>
 
               <div className="flex items-center gap-4">
+                <div className="hidden lg:block">
+                  <VoiceRecorder onTranscription={handleVoiceTranscription} />
+                </div>
                  <button 
                   onClick={insertTable}
                   className="hidden md:flex items-center gap-3 px-5 py-3 bg-white border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all text-[10px] font-black uppercase tracking-widest text-slate-600 group"
@@ -1543,6 +1567,54 @@ export default function EditorScreen() {
           pageTemplate === 'grid' ? 'paper-grid' : 
           pageTemplate === 'dots' ? 'paper-dots' : ''
         }`}>
+        {/* Persistent Summary View */}
+        <AnimatePresence>
+          {summaryResult && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: showSummaryView ? 'auto' : 48, opacity: 1 }}
+              className="bg-blue-50 border-b border-blue-100 overflow-hidden relative z-[55]"
+            >
+              <div className="p-4 sm:px-12 flex items-center justify-between cursor-pointer" onClick={() => setShowSummaryView(!showSummaryView)}>
+                <div className="flex items-center gap-3">
+                  <Sparkles className="w-4 h-4 text-blue-500" />
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600">AI Summary Insight</span>
+                </div>
+                <div className="flex items-center gap-4">
+                   {showSummaryView ? <ChevronDown className="w-4 h-4 text-blue-400" /> : <ChevronRight className="w-4 h-4 text-blue-400" />}
+                   <button 
+                    onClick={(e) => { e.stopPropagation(); setSummaryResult(null); }}
+                    className="p-1 hover:bg-blue-100 rounded-full transition-colors text-blue-300"
+                   >
+                     <X className="w-3 h-3" />
+                   </button>
+                </div>
+              </div>
+              {showSummaryView && (
+                <div className="px-4 sm:px-12 pb-8 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="bg-white/60 backdrop-blur-sm p-6 rounded-[24px] border border-blue-100 text-xs text-blue-800 leading-relaxed prose prose-sm prose-blue max-w-none">
+                    <ReactMarkdown>{summaryResult}</ReactMarkdown>
+                  </div>
+                  <div className="flex gap-2 mt-4 justify-end">
+                     <button 
+                      onClick={() => { updateText(text + "\n\n---\n" + summaryResult); setSummaryResult(null); }}
+                      className="px-4 py-2 bg-blue-100 text-blue-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-200"
+                     >
+                       Append to Note
+                     </button>
+                     <button 
+                      onClick={() => handleSummarize(true)}
+                      className="px-4 py-2 border border-blue-200 text-blue-400 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-white"
+                     >
+                       Regenerate
+                     </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="absolute inset-x-0 top-0 h-[300vh] pointer-events-none opacity-[0.02] flex items-start justify-center p-20 pt-40">
            <img src="/dragon_bg.png" alt="" className="w-full max-w-4xl object-contain grayscale animate-pulse" />
         </div>
@@ -2277,6 +2349,40 @@ export default function EditorScreen() {
         </div>
       )}
 
+      {/* Auto Summary Prompt */}
+      <AnimatePresence>
+        {showAutoSummaryPrompt && !summaryResult && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 100 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 100 }}
+            className="fixed bottom-24 left-4 right-4 z-[100] bg-slate-900 text-white p-5 rounded-[32px] shadow-2xl flex items-center gap-4 border border-white/10"
+          >
+            <div className="w-12 h-12 bg-blue-500/20 rounded-2xl flex items-center justify-center text-blue-400 shrink-0">
+              <Sparkles className="w-6 h-6" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">Deep Note Detected</p>
+              <p className="text-white/40 text-[9px] font-bold">This is a long one! Need a quick AI summary?</p>
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setShowAutoSummaryPrompt(false)}
+                className="w-10 h-10 flex items-center justify-center text-white/40 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={() => handleSummarize(true)}
+                className="bg-blue-600 px-5 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest text-white hover:bg-blue-500 shadow-lg shadow-blue-500/20"
+              >
+                Summary
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Summary Modal */}
       <AnimatePresence>
         {showSummaryModal && (
@@ -2360,17 +2466,17 @@ export default function EditorScreen() {
 
                 <div className="flex gap-4 pt-4">
                   <button 
-                    onClick={() => setShowSummaryModal(false)}
-                    className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-[24px] transition-all"
+                    onClick={() => handleSummarize(true)}
+                    className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-blue-500 hover:bg-blue-50 rounded-[24px] transition-all border border-blue-100"
                   >
-                    Cancel
+                    View as Insight
                   </button>
                   <button 
-                    onClick={handleSummarize}
+                    onClick={() => handleSummarize(false)}
                     className="flex-[1.5] py-5 bg-slate-900 text-white rounded-[24px] font-black uppercase text-[10px] tracking-[0.2em] hover:bg-slate-800 hover:shadow-2xl hover:scale-[1.02] active:scale-98 transition-all flex items-center justify-center gap-3 shadow-xl"
                   >
                     <Sparkles className="w-4 h-4 text-blue-400" />
-                    Generate Summary
+                    Append to Note
                   </button>
                 </div>
               </div>

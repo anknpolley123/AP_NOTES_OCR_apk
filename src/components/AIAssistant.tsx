@@ -5,7 +5,18 @@ import { MessageSquare, X, Send, Bot, User, Loader2, Sparkles, MinusCircle, Maxi
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiClient: GoogleGenAI | null = null;
+
+function getAIClient() {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is required");
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
 
 interface Message {
   role: 'user' | 'model';
@@ -47,6 +58,7 @@ export default function AIAssistant() {
     setIsLoading(true);
 
     try {
+      const ai = getAIClient();
       // Create chat history for context
       const history = messages.map(m => ({
         role: m.role,

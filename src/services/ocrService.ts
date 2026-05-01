@@ -1,10 +1,22 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+let aiClient: GoogleGenAI | null = null;
+
+function getAIClient() {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is required");
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
 
 export const recognizeText = async (base64Image: string, language: string = "auto"): Promise<string> => {
   try {
+    const ai = getAIClient();
     const model = ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: [
@@ -40,6 +52,7 @@ export const recognizeText = async (base64Image: string, language: string = "aut
 
 export const improveHandwriting = async (text: string): Promise<string> => {
   try {
+    const ai = getAIClient();
     const model = ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: [
@@ -72,6 +85,7 @@ export const improveHandwriting = async (text: string): Promise<string> => {
 
 export const cleanOcrText = async (text: string, style: 'clean' | 'formal' | 'bullet_points'): Promise<string> => {
   try {
+    const ai = getAIClient();
     const prompt = {
       clean: "Clean up this OCR text. Fix common misinterpretations, remove noise (random symbols), and ensure proper spacing. Return ONLY the cleaned text.",
       formal: "Reformat this OCR text into a formal document style. Correct any typos and clarify the language while maintaining the content. Return ONLY the formal text.",

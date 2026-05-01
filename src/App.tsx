@@ -36,7 +36,12 @@ export default function App() {
     testConnection();
 
     // Handle Auth
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    if (!auth) {
+      setAuthLoading(false);
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser: User | null) => {
       setUser(currentUser);
       setAuthLoading(false);
     });
@@ -62,6 +67,39 @@ export default function App() {
   );
 }
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("App Crash:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
+          <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-4">Something went wrong</h1>
+          <p className="text-slate-400 text-sm mb-8">The application encountered an unexpected error.</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all"
+          >
+            Restart App
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function AppContent() {
   const location = useLocation();
   
@@ -69,22 +107,24 @@ function AppContent() {
   const hideBottomNav = location.pathname.startsWith('/editor');
 
   return (
-    <div className="bg-gray-100 min-h-screen font-sans selection:bg-blue-100 flex flex-col">
-      <div className="flex-1 overflow-hidden relative flex flex-col">
-        <Routes>
-          <Route path="/" element={<HomeScreen />} />
-          <Route path="/editor" element={<EditorScreen />} />
-          <Route path="/editor/:id" element={<EditorScreen />} />
-          <Route path="/ocr" element={<OCRScreen />} />
-          <Route path="/knowledge" element={<KnowledgeScreen />} />
-          <Route path="/pdf-workspace" element={<PdfWorkspaceScreen />} />
-          <Route path="/settings" element={<SettingsScreen />} />
-          <Route path="/recycle-bin" element={<RecycleBinScreen />} />
-          <Route path="/cloud-storage" element={<CloudStorageScreen />} />
-        </Routes>
+    <ErrorBoundary>
+      <div className="bg-gray-100 min-h-screen font-sans selection:bg-blue-100 flex flex-col">
+        <div className="flex-1 relative flex flex-col">
+          <Routes>
+            <Route path="/" element={<HomeScreen />} />
+            <Route path="/editor" element={<EditorScreen />} />
+            <Route path="/editor/:id" element={<EditorScreen />} />
+            <Route path="/ocr" element={<OCRScreen />} />
+            <Route path="/knowledge" element={<KnowledgeScreen />} />
+            <Route path="/pdf-workspace" element={<PdfWorkspaceScreen />} />
+            <Route path="/settings" element={<SettingsScreen />} />
+            <Route path="/recycle-bin" element={<RecycleBinScreen />} />
+            <Route path="/cloud-storage" element={<CloudStorageScreen />} />
+          </Routes>
+        </div>
+        {!hideBottomNav && <BottomNav />}
+        <AIAssistant />
       </div>
-      {!hideBottomNav && <BottomNav />}
-      <AIAssistant />
-    </div>
+    </ErrorBoundary>
   );
 }

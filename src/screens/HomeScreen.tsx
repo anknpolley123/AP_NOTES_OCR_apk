@@ -38,31 +38,35 @@ export default function HomeScreen() {
     
     // Listen for cloud notes if logged in
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
+      if (user && db) {
         // Query notes where user is owner
-        const qOwner = query(collection(db, 'notes'), where('ownerId', '==', user.uid));
-        const unsubscribeOwner = onSnapshot(qOwner, (snapshot) => {
-          const ownerNotes = snapshot.docs.map(doc => doc.data() as Note);
-          setCloudNotes(prev => {
-             const others = prev.filter(n => n.ownerId !== user.uid);
-             return [...others, ...ownerNotes];
-          });
-        });
-        
-        // Query notes where user is collaborator
-        const qCollab = query(collection(db, 'notes'), where('collaborators', 'array-contains', user.uid));
-        const unsubscribeCollab = onSnapshot(qCollab, (snapshot) => {
-          const collabNotes = snapshot.docs.map(doc => doc.data() as Note);
-          setCloudNotes(prev => {
-             const others = prev.filter(n => !n.collaborators?.includes(user.uid));
-             return [...others, ...collabNotes];
-          });
-        });
-        
-        return () => {
-          unsubscribeOwner();
-          unsubscribeCollab();
-        };
+        try {
+          const qOwner = query(collection(db, 'notes'), where('ownerId', '==', user.uid));
+          const unsubscribeOwner = onSnapshot(qOwner, (snapshot) => {
+            const ownerNotes = snapshot.docs.map(doc => doc.data() as Note);
+            setCloudNotes(prev => {
+              const others = prev.filter(n => n.ownerId !== user.uid);
+              return [...others, ...ownerNotes];
+            });
+          }, (err) => console.error("Firestore owner notes error:", err));
+          
+          // Query notes where user is collaborator
+          const qCollab = query(collection(db, 'notes'), where('collaborators', 'array-contains', user.uid));
+          const unsubscribeCollab = onSnapshot(qCollab, (snapshot) => {
+            const collabNotes = snapshot.docs.map(doc => doc.data() as Note);
+            setCloudNotes(prev => {
+              const others = prev.filter(n => !n.collaborators?.includes(user.uid));
+              return [...others, ...collabNotes];
+            });
+          }, (err) => console.error("Firestore collab notes error:", err));
+          
+          return () => {
+            unsubscribeOwner();
+            unsubscribeCollab();
+          };
+        } catch (e) {
+          console.error("Failed to setup Firestore listeners:", e);
+        }
       } else {
         setCloudNotes([]);
       }

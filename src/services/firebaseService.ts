@@ -3,9 +3,19 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User 
 import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, query, where, getDocs, deleteDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
-export const auth = getAuth(app);
+let app;
+let db: any;
+let auth: any;
+
+try {
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+  auth = getAuth(app);
+} catch (error) {
+  console.error("Firebase initialization failed:", error);
+}
+
+export { db, auth };
 const googleProvider = new GoogleAuthProvider();
 
 export const loginWithGoogle = async () => {
