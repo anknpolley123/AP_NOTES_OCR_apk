@@ -14,7 +14,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
-import SignatureCanvas from 'react-signature-canvas';
+import { SignatureModal } from '../components/SignatureModal';
+import { ImageGenModal } from '../components/ImageGenModal';
 import Layout from '../components/Layout';
 import { saveNote, updateNote, getNotes, softDeleteNote, Note, getFolders, Folder } from '../services/storage';
 import { exportToDocx } from '../services/docxService';
@@ -58,6 +59,7 @@ export default function EditorScreen() {
   const [showCollabModal, setShowCollabModal] = useState(false);
   const [collabNoteData, setCollabNoteData] = useState<any>(null);
   const [collaboratorProfiles, setCollaboratorProfiles] = useState<any[]>([]);
+  const [showTemplatesMenu, setShowTemplatesMenu] = useState(false);
   const [isCollabInSync, setIsCollabInSync] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [isInviting, setIsInviting] = useState(false);
@@ -104,8 +106,6 @@ export default function EditorScreen() {
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
   const [showSummaryView, setShowSummaryView] = useState(false);
   const [showAutoSummaryPrompt, setShowAutoSummaryPrompt] = useState(false);
-  const [imagePrompt, setImagePrompt] = useState('');
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showTemplateMenu, setShowTemplateMenu] = useState(false);
   const [showPenSettings, setShowPenSettings] = useState(false);
   const [showHighlighterSettings, setShowHighlighterSettings] = useState(false);
@@ -575,6 +575,58 @@ export default function EditorScreen() {
     softHaptic();
   };
 
+  const handleSaveSignature = (dataURL: string) => {
+    mediumHaptic();
+    const signatureMarkdown = `\n\n![Signature](${dataURL})\n\n`;
+    const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
+    
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newText = text.substring(0, start) + signatureMarkdown + text.substring(end);
+      setText(newText);
+      updateText(newText);
+      
+      // Reset cursor position after insert
+      setTimeout(() => {
+        textarea.focus();
+        const cursorPosition = start + signatureMarkdown.length;
+        textarea.setSelectionRange(cursorPosition, cursorPosition);
+      }, 0);
+    } else {
+      const newText = text + signatureMarkdown;
+      setText(newText);
+      updateText(newText);
+    }
+    
+    setShowSignatureModal(false);
+  };
+
+  const handleInsertAiImage = (dataURL: string) => {
+    mediumHaptic();
+    const imageMarkdown = `\n\n![AI Generated Image](${dataURL})\n\n`;
+    const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
+    
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newText = text.substring(0, start) + imageMarkdown + text.substring(end);
+      setText(newText);
+      updateText(newText);
+      
+      // Reset cursor position after insert
+      setTimeout(() => {
+        textarea.focus();
+        const cursorPosition = start + imageMarkdown.length;
+        textarea.setSelectionRange(cursorPosition, cursorPosition);
+      }, 0);
+    } else {
+      const newText = text + imageMarkdown;
+      setText(newText);
+      updateText(newText);
+    }
+  };
+
   const handleAiAction = async (action: 'summarize' | 'refinement' | 'actions' | 'generate_image' | 'generate_document' | 'auto_format' | 'spell_check') => {
     if (!text.trim() && action !== 'generate_image' && action !== 'generate_document') return;
     
@@ -671,7 +723,7 @@ export default function EditorScreen() {
     updateText(newText);
   };
 
-  const handleInsertImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -707,27 +759,6 @@ export default function EditorScreen() {
       updateText(text + pdfMarkdown);
     }
     setShowAiMenu(false);
-  };
-
-  const handleGenerateImage = async () => {
-    if (!imagePrompt.trim()) return;
-    setIsGeneratingImage(true);
-    try {
-      setAiStatus('GENERATING IMAGE...');
-      setIsAiProcessing(true);
-      const imageUrl = await generateImage(imagePrompt);
-      const markdown = `\n\n![Generated: ${imagePrompt}](${imageUrl})\n\n`;
-      updateText(text + markdown);
-      setShowImageGenModal(false);
-      setImagePrompt('');
-    } catch (error) {
-      console.error(error);
-      alert("Failed to generate image. Please try a different prompt.");
-    } finally {
-      setIsGeneratingImage(false);
-      setIsAiProcessing(false);
-      setAiStatus('');
-    }
   };
 
   const handleReplace = () => {
@@ -962,7 +993,6 @@ export default function EditorScreen() {
     recognition.start();
   };
 
-  const sigCanvas = React.useRef<SignatureCanvas>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -1051,34 +1081,6 @@ export default function EditorScreen() {
 
   const removeTag = (tag: string) => {
     setTags(tags.filter(t => t !== tag));
-  };
-
-  const clearSignature = () => {
-    sigCanvas.current?.clear();
-  };
-
-  const saveSignature = () => {
-    if (sigCanvas.current?.isEmpty()) {
-      alert("Please provide a signature first.");
-      return;
-    }
-    
-    const dataURL = sigCanvas.current?.getTrimmedCanvas().toDataURL('image/png');
-    if (dataURL) {
-      const textarea = document.getElementById('note-text-textarea') as HTMLTextAreaElement;
-      const signatureMarkdown = `\n\n![Signature](${dataURL})\n\n`;
-      
-      if (textarea) {
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const newText = text.substring(0, start) + signatureMarkdown + text.substring(end);
-        updateText(newText);
-      } else {
-        updateText(text + signatureMarkdown);
-      }
-      
-      setShowSignatureModal(false);
-    }
   };
 
   // Formatting Toolbar - Redesigned to match image
@@ -1426,7 +1428,7 @@ export default function EditorScreen() {
                          </div>
                          <div className="grid grid-cols-2 gap-2 p-2">
                             <label className="flex flex-col items-center gap-2 p-4 hover:bg-slate-50 rounded-[24px] group cursor-pointer">
-                               <input type="file" accept="image/*" className="hidden" onChange={handleInsertImage} />
+                               <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                                <div className="w-10 h-10 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-500 group-hover:scale-110 transition-all"><FileUp className="w-5 h-5" /></div>
                                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Image</span>
                             </label>
@@ -1443,6 +1445,13 @@ export default function EditorScreen() {
                                <div className="w-10 h-10 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-500 group-hover:scale-110 transition-all"><LayoutGrid className="w-5 h-5" /></div>
                                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Clean Up</span>
                             </button>
+                            <button onClick={() => { softHaptic(); setShowTemplatesMenu(true); setShowAiMenu(false); }} className="flex flex-col items-center gap-2 p-4 hover:bg-slate-50 rounded-[24px] group">
+                               <div className="w-10 h-10 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-all"><PenLine className="w-5 h-5" /></div>
+                               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Templates</span>
+                            </button>
+                         </div>
+                         <div className="px-4 py-2 border-t border-slate-50 mt-2">
+                            <VoiceRecorder onTranscription={handleVoiceTranscription} />
                          </div>
                          <div className="p-2">
                             <button onClick={() => { setShowAiMenu(false); setShowTranslateModal(true); }} className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 rounded-[24px] group transition-all">
@@ -1920,119 +1929,6 @@ export default function EditorScreen() {
           </>
         )}
       </AnimatePresence>
-      <AnimatePresence>
-        {showImageGenModal && (
-          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => !isGeneratingImage && setShowImageGenModal(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-white rounded-[40px] w-full max-w-lg overflow-hidden shadow-2xl flex flex-col relative z-20 border border-slate-100"
-            >
-              <div className="p-8 bg-slate-900 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-tr from-pink-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-pink-500/20">
-                    <Sparkles className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-white text-sm font-black uppercase tracking-widest">Magic Image Gen</h3>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <div className="w-1 h-1 bg-pink-400 rounded-full animate-pulse" />
-                      <span className="text-white/50 text-[8px] font-black uppercase tracking-widest leading-none">Powered by Gemini</span>
-                    </div>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setShowImageGenModal(false)}
-                  className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
-                  disabled={isGeneratingImage}
-                >
-                  <X className="w-5 h-5 text-white" />
-                </button>
-              </div>
-              <div className="p-8 space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">What should Gemini create for you?</label>
-                  <div className="relative">
-                    <textarea
-                      value={imagePrompt}
-                      onChange={(e) => setImagePrompt(e.target.value)}
-                      placeholder="e.g. A vibrant cyberpunk marketplace, cinematic lighting, 8k..."
-                      className="w-full h-32 bg-slate-50 border border-slate-100 rounded-[28px] p-6 text-sm focus:ring-2 focus:ring-pink-500 outline-none transition-all resize-none shadow-inner"
-                      disabled={isGeneratingImage}
-                      autoFocus
-                    />
-                    <div className="absolute bottom-4 right-4 text-[10px] font-black text-slate-300 uppercase tracking-widest">
-                      AI GENERATION
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button 
-                    onClick={() => setImagePrompt("A minimalistic abstract background with soft gradients")}
-                    className="p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[9px] font-black uppercase tracking-wider text-slate-500 hover:border-pink-300 hover:text-pink-600 transition-all text-center"
-                    disabled={isGeneratingImage}
-                  >
-                    Abstract
-                  </button>
-                  <button 
-                    onClick={() => setImagePrompt("A hyper-realistic 3D render of a futuristic gadget")}
-                    className="p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[9px] font-black uppercase tracking-wider text-slate-500 hover:border-pink-300 hover:text-pink-600 transition-all text-center"
-                    disabled={isGeneratingImage}
-                  >
-                    Futuristic
-                  </button>
-                </div>
-
-                <div className="flex gap-4 pt-2">
-                  <button 
-                    onClick={() => setShowImageGenModal(false)}
-                    className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
-                    disabled={isGeneratingImage}
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleGenerateImage}
-                    disabled={isGeneratingImage || !imagePrompt.trim()}
-                    className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-3 shadow-xl shadow-pink-500/10"
-                  >
-                    {isGeneratingImage ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white/20 border-t-pink-400 rounded-full animate-spin" />
-                        Generating Magic...
-                      </>
-                    ) : (
-                      <>
-                        <Palette className="w-5 h-5 text-pink-400" />
-                        Create Image
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-              
-              {isGeneratingImage && (
-                <div className="absolute inset-0 bg-white/20 backdrop-blur-[2px] flex items-center justify-center pointer-events-none">
-                  <div className="bg-white/90 px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-bounce">
-                    <Sparkles className="w-4 h-4 text-pink-500 animate-pulse" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">Gemini is thinking...</span>
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* Note Template Modal */}
       <AnimatePresence>
         {showNoteTemplateModal && (
@@ -2485,66 +2381,19 @@ export default function EditorScreen() {
         )}
       </AnimatePresence>
 
-      {/* Signature Modal */}
-      {showSignatureModal && (
-        <div 
-          id="signature-modal-overlay" 
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
-          onClick={() => setShowSignatureModal(false)}
-        >
-          <div 
-            id="signature-modal-container" 
-            className="bg-white w-full max-w-sm rounded-[40px] overflow-hidden shadow-2xl animate-in zoom-in duration-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-6 bg-slate-900 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <PenTool className="w-5 h-5 text-blue-400" />
-                <h3 className="text-white font-black uppercase tracking-widest text-sm">Add Signature</h3>
-              </div>
-              <button 
-                onClick={() => setShowSignatureModal(false)}
-                className="text-white/40 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-4 bg-slate-50">
-              <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-inner">
-                <SignatureCanvas 
-                  ref={sigCanvas} 
-                  penColor='black' 
-                  canvasProps={{ 
-                    width: 400, 
-                    height: 250, 
-                    className: 'sigCanvas w-full h-[250px]',
-                    id: 'signature-canvas'
-                  }} 
-                />
-              </div>
-              <p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-4">Draw your signature above</p>
-            </div>
+      <SignatureModal 
+        isOpen={showSignatureModal} 
+        onClose={() => setShowSignatureModal(false)} 
+        onSave={handleSaveSignature} 
+      />
 
-            <div className="p-6 grid grid-cols-2 gap-3 bg-white">
-              <button 
-                id="clear-signature-btn"
-                onClick={clearSignature} 
-                className="bg-slate-100 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-600 hover:bg-slate-200 transition-all"
-              >
-                Clear
-              </button>
-              <button 
-                id="apply-signature-btn"
-                onClick={saveSignature} 
-                className="bg-slate-900 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white hover:bg-slate-800 transition-all shadow-lg shadow-blue-500/10"
-              >
-                Apply Signature
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ImageGenModal
+        isOpen={showImageGenModal}
+        onClose={() => setShowImageGenModal(false)}
+        onGenerate={generateImage}
+        onInsert={handleInsertAiImage}
+      />
+
       {/* Collaborative Note Settings Modal */}
       <AnimatePresence>
         {showCollabModal && (
@@ -2664,6 +2513,62 @@ export default function EditorScreen() {
                 >
                   Close Settings
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showTemplatesMenu && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowTemplatesMenu(false)}
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-xl bg-white rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="p-8 border-b border-slate-50 flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter">Note Templates</h3>
+                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">Select a starting structure</p>
+                </div>
+                <button 
+                  onClick={() => setShowTemplatesMenu(false)}
+                  className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-900 transition-all"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 md:p-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {NOTE_TEMPLATES.map((template) => (
+                    <button
+                      key={template.id}
+                      onClick={() => { applyTemplate(template.content, template.name); setShowTemplatesMenu(false); }}
+                      className="text-left p-6 bg-slate-50 border border-transparent hover:border-blue-500/20 hover:bg-white hover:shadow-xl hover:shadow-blue-900/5 rounded-[32px] transition-all group"
+                    >
+                      <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-900 mb-4 shadow-sm group-hover:scale-110 group-hover:bg-blue-600 group-hover:text-white transition-all">
+                        {template.icon}
+                      </div>
+                      <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight mb-1">{template.name}</h4>
+                      <p className="text-[10px] text-slate-500 font-medium leading-relaxed">{template.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-8 bg-slate-50 mt-auto">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest text-center">
+                  More templates coming soon with Galaxy AI
+                </p>
               </div>
             </motion.div>
           </div>

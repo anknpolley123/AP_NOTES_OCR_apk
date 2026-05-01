@@ -1,0 +1,8 @@
+{
+	"appId": "com.dragon.notes",
+	"appName": "Dragon Notes",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https"
+	}
+}

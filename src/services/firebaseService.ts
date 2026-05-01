@@ -19,18 +19,24 @@ export { db, auth };
 const googleProvider = new GoogleAuthProvider();
 
 export const loginWithGoogle = async () => {
+  if (!auth) {
+    console.error("Auth not initialized");
+    return;
+  }
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
     
     // Save user profile
-    await setDoc(doc(db, 'users', user.uid), {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      photoURL: user.photoURL,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
+    if (db) {
+      await setDoc(doc(db, 'users', user.uid), {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    }
     
     return user;
   } catch (error) {
@@ -39,7 +45,7 @@ export const loginWithGoogle = async () => {
   }
 };
 
-export const logout = () => auth.signOut();
+export const logout = () => auth?.signOut();
 
 export enum OperationType {
   CREATE = 'create',

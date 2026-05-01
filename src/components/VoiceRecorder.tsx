@@ -31,12 +31,13 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription })
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/wav' });
+        const mimeType = mediaRecorder.mimeType || 'audio/webm';
+        const audioBlob = new Blob(chunksRef.current, { type: mimeType });
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = (reader.result as string).split(',')[1];
-          await handleTranscription(base64Audio);
+          await handleTranscription(base64Audio, mimeType);
         };
         stream.getTracks().forEach(track => track.stop());
       };
@@ -62,10 +63,10 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription })
     }
   };
 
-  const handleTranscription = async (base64Audio: string) => {
+  const handleTranscription = async (base64Audio: string, mimeType: string) => {
     setIsProcessing(true);
     try {
-      const transcription = await transcribeAudio(base64Audio);
+      const transcription = await transcribeAudio(base64Audio, mimeType);
       onTranscription(transcription);
       successHaptic();
     } catch (err) {

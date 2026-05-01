@@ -15,6 +15,7 @@ import { isOnboardingComplete } from './services/storage';
 import { auth, db } from './services/firebaseService';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDocFromServer } from 'firebase/firestore';
+import { X } from 'lucide-react';
 
 export default function App() {
   const [onboardingDone, setOnboardingDone] = useState(isOnboardingComplete());
@@ -48,51 +49,69 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  if (!onboardingDone) {
-    return <PermissionOnboarding onComplete={() => setOnboardingDone(true)} />;
-  }
+  const content = () => {
+    if (!onboardingDone) {
+      return <PermissionOnboarding onComplete={() => setOnboardingDone(true)} />;
+    }
 
-  if (authLoading) {
+    if (authLoading) {
+      return (
+        <div className="fixed inset-0 bg-slate-950 flex items-center justify-center">
+          <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+        </div>
+      );
+    }
+
     return (
-      <div className="fixed inset-0 bg-slate-950 flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
-      </div>
+      <Router>
+        <AppContent />
+      </Router>
     );
-  }
+  };
 
   return (
-    <Router>
-      <AppContent />
-    </Router>
+    <ErrorBoundary>
+      {content()}
+    </ErrorBoundary>
   );
 }
 
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
   constructor(props: any) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, error: null };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: any, errorInfo: any) {
-    console.error("App Crash:", error, errorInfo);
+    console.error("Critical Failure:", error, errorInfo);
   }
 
   render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
-          <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-4">Something went wrong</h1>
-          <p className="text-slate-400 text-sm mb-8">The application encountered an unexpected error.</p>
+          <div className="w-20 h-20 bg-red-500/20 rounded-[32px] flex items-center justify-center text-red-500 mb-8 border border-red-500/20">
+            <X className="w-10 h-10" />
+          </div>
+          <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-4">Application Error</h1>
+          <p className="text-slate-400 text-sm mb-4 max-w-sm mx-auto">The app encountered a critical issue. This might be due to missing configuration or unsupported device features.</p>
+          <div className="bg-slate-900 p-4 rounded-2xl mb-8 max-w-lg overflow-x-auto">
+            <code className="text-[10px] text-red-400 font-mono whitespace-pre">{this.state.error?.message || "Unknown error"}</code>
+          </div>
           <button 
-            onClick={() => window.location.reload()}
-            className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all"
+            onClick={() => {
+              localStorage.clear();
+              window.location.reload();
+            }}
+            className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-900/20 mb-4"
           >
-            Restart App
+            Reset & Restart
           </button>
+          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Warning: resetting will clear local data.</p>
         </div>
       );
     }
@@ -107,24 +126,22 @@ function AppContent() {
   const hideBottomNav = location.pathname.startsWith('/editor');
 
   return (
-    <ErrorBoundary>
-      <div className="bg-gray-100 min-h-screen font-sans selection:bg-blue-100 flex flex-col">
-        <div className="flex-1 relative flex flex-col">
-          <Routes>
-            <Route path="/" element={<HomeScreen />} />
-            <Route path="/editor" element={<EditorScreen />} />
-            <Route path="/editor/:id" element={<EditorScreen />} />
-            <Route path="/ocr" element={<OCRScreen />} />
-            <Route path="/knowledge" element={<KnowledgeScreen />} />
-            <Route path="/pdf-workspace" element={<PdfWorkspaceScreen />} />
-            <Route path="/settings" element={<SettingsScreen />} />
-            <Route path="/recycle-bin" element={<RecycleBinScreen />} />
-            <Route path="/cloud-storage" element={<CloudStorageScreen />} />
-          </Routes>
-        </div>
-        {!hideBottomNav && <BottomNav />}
-        <AIAssistant />
+    <div className="bg-gray-100 min-h-screen font-sans selection:bg-blue-100 flex flex-col">
+      <div className="flex-1 relative flex flex-col">
+        <Routes>
+          <Route path="/" element={<HomeScreen />} />
+          <Route path="/editor" element={<EditorScreen />} />
+          <Route path="/editor/:id" element={<EditorScreen />} />
+          <Route path="/ocr" element={<OCRScreen />} />
+          <Route path="/knowledge" element={<KnowledgeScreen />} />
+          <Route path="/pdf-workspace" element={<PdfWorkspaceScreen />} />
+          <Route path="/settings" element={<SettingsScreen />} />
+          <Route path="/recycle-bin" element={<RecycleBinScreen />} />
+          <Route path="/cloud-storage" element={<CloudStorageScreen />} />
+        </Routes>
       </div>
-    </ErrorBoundary>
+      {!hideBottomNav && <BottomNav />}
+      <AIAssistant />
+    </div>
   );
 }

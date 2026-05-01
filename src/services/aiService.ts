@@ -160,7 +160,7 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string = "a
             {
               inlineData: {
                 data: base64Audio,
-                mimeType: mimeType,
+                mimeType: mimeType.split(';')[0],
               },
             },
             {
