@@ -26,16 +26,21 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '21' # Updated from 17 to 21 to fix your error
+          java-version: '21'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+
+      - name: Fix Corrupt Wrapper Jar
+        run: |
+          cd android/gradle/wrapper
+          curl -LO https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar
 
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean assembleDebug # 'clean' removes the old broken files
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
