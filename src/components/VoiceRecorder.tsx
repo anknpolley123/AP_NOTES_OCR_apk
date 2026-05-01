@@ -16,8 +16,11 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription })
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [error, setError] = useState<string | null>(null);
+
   const startRecording = async () => {
     try {
+      setError(null);
       softHaptic();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -50,7 +53,15 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription })
       }, 1000);
     } catch (err) {
       console.error("Microphone access denied:", err);
-      alert("Microphone access is required for transcription.");
+      if (err instanceof Error) {
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          setError("Microphone permission denied. Please allow access in browser settings.");
+        } else {
+          setError(`Mic Error: ${err.message}`);
+        }
+      } else {
+        setError("Microphone access failed.");
+      }
     }
   };
 
@@ -65,13 +76,14 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription })
 
   const handleTranscription = async (base64Audio: string, mimeType: string) => {
     setIsProcessing(true);
+    setError(null);
     try {
       const transcription = await transcribeAudio(base64Audio, mimeType);
       onTranscription(transcription);
       successHaptic();
     } catch (err) {
       console.error(err);
-      alert("Transcription failed. Try again.");
+      setError("Transcription failed. Try again.");
     } finally {
       setIsProcessing(false);
     }
@@ -84,56 +96,63 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription })
   };
 
   return (
-    <div className="flex items-center gap-3 bg-slate-900/95 backdrop-blur-xl p-3 rounded-[32px] border border-white/10 shadow-2xl">
-      <AnimatePresence mode="wait">
-        {isProcessing ? (
-          <motion.div 
-            key="processing"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="flex items-center gap-3 text-blue-400 px-4 py-2"
-          >
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span className="text-[10px] font-black uppercase tracking-widest">AI Transcribing...</span>
-          </motion.div>
-        ) : isRecording ? (
-          <motion.div 
-            key="recording"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="flex items-center gap-4 py-1"
-          >
-            <div className="flex items-center gap-2 px-4 py-2 bg-red-500/20 rounded-2xl border border-red-500/20">
-              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-              <span className="text-[12px] font-mono font-black text-red-500">{formatTime(recordingTime)}</span>
-            </div>
-            <button 
-              onClick={stopRecording}
-              className="w-12 h-12 bg-white rounded-[22px] flex items-center justify-center text-slate-900 shadow-lg hover:scale-105 active:scale-95 transition-all"
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-3 bg-slate-900/95 backdrop-blur-xl p-3 rounded-[32px] border border-white/10 shadow-2xl">
+        <AnimatePresence mode="wait">
+          {isProcessing ? (
+            <motion.div 
+              key="processing"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="flex items-center gap-3 text-blue-400 px-4 py-2"
             >
-              <Square className="w-5 h-5 fill-current" />
-            </button>
-          </motion.div>
-        ) : (
-          <motion.button
-            key="start"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            onClick={startRecording}
-            className="w-12 h-12 bg-blue-600 rounded-[22px] flex items-center justify-center text-white shadow-xl shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all"
-          >
-            <Mic className="w-5 h-5" />
-          </motion.button>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-[10px] font-black uppercase tracking-widest">AI Transcribing...</span>
+            </motion.div>
+          ) : isRecording ? (
+            <motion.div 
+              key="recording"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="flex items-center gap-4 py-1"
+            >
+              <div className="flex items-center gap-2 px-4 py-2 bg-red-500/20 rounded-2xl border border-red-500/20">
+                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                <span className="text-[12px] font-mono font-black text-red-500">{formatTime(recordingTime)}</span>
+              </div>
+              <button 
+                onClick={stopRecording}
+                className="w-12 h-12 bg-white rounded-[22px] flex items-center justify-center text-slate-900 shadow-lg hover:scale-105 active:scale-95 transition-all"
+              >
+                <Square className="w-5 h-5 fill-current" />
+              </button>
+            </motion.div>
+          ) : (
+            <motion.button
+              key="start"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              onClick={startRecording}
+              className="w-12 h-12 bg-blue-600 rounded-[22px] flex items-center justify-center text-white shadow-xl shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all"
+            >
+              <Mic className="w-5 h-5" />
+            </motion.button>
+          )}
+        </AnimatePresence>
+        
+        {!isRecording && !isProcessing && (
+          <div className="pr-5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-100">Transcribe</p>
+            <p className="text-[9px] font-bold text-slate-500">Record & Convert</p>
+          </div>
         )}
-      </AnimatePresence>
-      
-      {!isRecording && !isProcessing && (
-        <div className="pr-5">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-100">Transcribe</p>
-          <p className="text-[9px] font-bold text-slate-500">Record & Convert</p>
+      </div>
+      {error && (
+        <div className="px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl">
+          <p className="text-[9px] font-black text-red-500 uppercase tracking-widest">{error}</p>
         </div>
       )}
     </div>

@@ -38,14 +38,19 @@ export default function OCRScreen() {
   const [rotation, setRotation] = useState(0);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
+  const [hasRequestedCamera, setHasRequestedCamera] = useState(false);
+
   useEffect(() => {
-    if (!isEditing && !capturedImage) startCamera();
+    if (!isEditing && !capturedImage && !hasRequestedCamera) {
+      setHasRequestedCamera(true);
+      startCamera();
+    }
     return () => {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
       }
     };
-  }, [isEditing, capturedImage]);
+  }, [isEditing, capturedImage, hasRequestedCamera]);
 
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -127,9 +132,11 @@ export default function OCRScreen() {
       console.error("Camera access denied:", err);
       if (err instanceof Error) {
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          setError("Camera permission denied. Please allow camera access in your browser settings.");
+          setError("Camera permission denied or blocked by browser. Please check your site settings and ensure you have allowed camera access for this application.");
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          setError("No camera found on this device.");
+          setError("No camera found on this device. Please ensure a camera is connected.");
+        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+          setError("Camera is already in use by another application. Please close other apps using the camera and try again.");
         } else {
           setError(`Camera Error: ${err.message}. Try uploading a file instead.`);
         }
@@ -598,7 +605,7 @@ export default function OCRScreen() {
       )}
 
       {error && (
-        <div className="mt-6 p-5 bg-red-500/10 border border-red-500/20 text-red-500 rounded-[24px] flex flex-col items-center gap-4">
+        <div className="mt-6 p-5 bg-red-500/10 border border-red-500/20 text-red-500 rounded-[24px] flex flex-col items-center gap-4 animate-in slide-in-from-bottom-4 duration-500">
           <div className="flex items-center gap-4 w-full">
             <X className="w-6 h-6 flex-shrink-0" />
             <div>
@@ -606,14 +613,32 @@ export default function OCRScreen() {
               <p className="text-sm font-medium">{error}</p>
             </div>
           </div>
-          {(error.includes("denied") || error.includes("not allowed")) && !capturedImage && (
+          
+          <div className="w-full bg-slate-900/50 p-4 rounded-xl space-y-3">
+             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Troubleshooting Guide:</p>
+             <ul className="text-[10px] text-slate-500 space-y-2 list-disc ml-4">
+                <li>Check if the camera is physically covered or disabled.</li>
+                <li>Ensure you are using HTTPS (AI Studio handles this, but worth checking).</li>
+                <li>Click the Lock icon in your browser address bar and verify Camera permission is "Allow".</li>
+                <li>If you are in a private/incognito window, camera access might be restricted.</li>
+             </ul>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 w-full">
             <button 
               onClick={() => { setError(null); startCamera(); }}
-              className="w-full bg-red-500 text-white py-3 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-600 transition-all flex items-center justify-center gap-2"
+              className="bg-red-500 text-white py-3 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-600 transition-all flex items-center justify-center gap-2"
             >
-              <RefreshCw className="w-4 h-4" /> Retry Camera
+              <RefreshCw className="w-4 h-4" /> Retry
             </button>
-          )}
+            <button 
+              onClick={() => window.open(window.location.href, '_blank')}
+              className="bg-blue-600 text-white py-3 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+            >
+              <Download className="w-4 h-4 rotate-[-90deg]" /> New Tab
+            </button>
+          </div>
+          <p className="text-[8px] font-bold text-slate-500 text-center">Tip: Opening in a new tab often resolves IFrame-related permission issues.</p>
         </div>
       )}
 

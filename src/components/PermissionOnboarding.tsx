@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Camera, Mic, Bell, ShieldCheck, ArrowRight, Zap } from 'lucide-react';
+import { Camera, Mic, Bell, ShieldCheck, ArrowRight, Zap, Database } from 'lucide-react';
 import { setOnboardingComplete } from '../services/storage';
 
 interface PermissionStep {
@@ -37,6 +37,13 @@ export default function PermissionOnboarding({ onComplete }: { onComplete: () =>
       color: 'purple'
     },
     {
+      id: 'storage',
+      title: 'STORAGE ACCESS',
+      desc: 'Allows the app to save notes locally and cache large PDF documents for offline access.',
+      icon: <Database className="w-12 h-12 text-green-500" />,
+      color: 'green'
+    },
+    {
       id: 'notifications',
       title: 'NOTIFICATIONS',
       desc: 'Keep you updated on sync status and smart insight processing.',
@@ -45,8 +52,11 @@ export default function PermissionOnboarding({ onComplete }: { onComplete: () =>
     }
   ];
 
+  const [isDenied, setIsDenied] = useState(false);
+
   const handleNext = async () => {
     const currentStep = steps[step];
+    setIsDenied(false);
     
     try {
       if (currentStep.id === 'camera' || currentStep.id === 'mic') {
@@ -56,12 +66,18 @@ export default function PermissionOnboarding({ onComplete }: { onComplete: () =>
         stream.getTracks().forEach(track => track.stop());
       } else if (currentStep.id === 'notifications') {
         if ('Notification' in window) {
-          await Notification.requestPermission();
+          const result = await Notification.requestPermission();
+          if (result === 'denied') throw new Error('Denied');
+        }
+      } else if (currentStep.id === 'storage') {
+        if ('storage' in navigator && 'persist' in navigator.storage) {
+          await navigator.storage.persist();
         }
       }
     } catch (e) {
       console.warn("Permission denied or cancelled:", e);
-      // Optional: Inform user that some features might be limited
+      setIsDenied(true);
+      return; // Stop and let the user see the denied state or skip
     }
 
     if (step < steps.length - 1) {
@@ -88,6 +104,13 @@ export default function PermissionOnboarding({ onComplete }: { onComplete: () =>
            <div className="space-y-3">
               <h1 className="text-[10px] font-black tracking-[0.4em] text-blue-500 uppercase">Step {step + 1} of {steps.length}</h1>
               <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase">{current.title}</h2>
+              {isDenied && (
+                <div className="bg-red-500/10 border border-red-500/20 p-3 rounded-2xl animate-in fade-in slide-in-from-top-2 duration-300">
+                  <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">
+                    Permission blocked by browser. Please enable it in site settings to continue, or skip this step.
+                  </p>
+                </div>
+              )}
               <p className="text-sm font-medium text-slate-400 leading-relaxed">
                 {current.desc}
               </p>
@@ -97,15 +120,15 @@ export default function PermissionOnboarding({ onComplete }: { onComplete: () =>
         <div className="flex flex-col gap-3">
            <button 
              onClick={handleNext}
-             className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-blue-900/20 active:scale-95 transition-all flex items-center justify-center gap-3"
+             className={`w-full py-5 rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl active:scale-95 transition-all flex items-center justify-center gap-3 ${isDenied ? 'bg-slate-800 text-slate-400' : 'bg-blue-600 text-white shadow-blue-900/20 hover:bg-blue-700'}`}
            >
-             {step === 0 ? 'START SETUP' : 'ALLOW & CONTINUE'}
+             {step === 0 ? 'START SETUP' : isDenied ? 'RETRY PERMISSION' : 'ALLOW & CONTINUE'}
              <ArrowRight className="w-4 h-4" />
            </button>
            
-           {step > 0 && (
+           {(step > 0 || isDenied) && (
              <button 
-               onClick={() => setStep(step + 1)}
+               onClick={() => { setIsDenied(false); setStep(step + 1); }}
                className="text-[10px] font-black text-slate-500 hover:text-slate-300 uppercase tracking-widest py-2"
              >
                Skip for now

@@ -44,11 +44,12 @@ service cloud.firestore {
 
     // --- Note Validation ---
     function isValidNote(data) {
+      let isCreate = request.method == 'create';
       return data.keys().hasAll(['id', 'title', 'text', 'ownerId', 'createdAt', 'updatedAt']) &&
              data.id is string && data.id.size() <= 128 &&
              data.title is string && data.title.size() <= 200 &&
              data.text is string && data.text.size() <= 100000 &&
-             data.ownerId == request.auth.uid &&
+             (isCreate ? data.ownerId == request.auth.uid : data.ownerId == resource.data.ownerId) &&
              data.createdAt is number &&
              data.updatedAt is number &&
              (data.get('collaborators', []) is list) &&

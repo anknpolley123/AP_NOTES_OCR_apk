@@ -1,15 +1,21 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   FileStack, FileCode, Lock, PenTool, ScanSearch, 
   ChevronRight, ArrowRight, FilePlus, Split, Download,
-  Merge, Scissors
+  Merge, Scissors, Trash2, Shield, FileText
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import { useNavigate } from 'react-router-dom';
+import { SignatureModal } from '../components/SignatureModal';
 
 export default function PdfWorkspaceScreen() {
   const navigate = useNavigate();
+  const [showSignModal, setShowSignModal] = useState(false);
+  const [recentPdfs, setRecentPdfs] = useState([
+    { id: '1', name: 'Lease_Agreement.pdf', size: '1.2 MB', date: '2h ago' },
+    { id: '2', name: 'Invoice_7732.pdf', size: '450 KB', date: '1d ago' },
+  ]);
   const tools = [
     { 
       id: 'merge', 
@@ -61,7 +67,7 @@ export default function PdfWorkspaceScreen() {
            {[
              { icon: <Merge />, label: 'merge', action: () => alert("Select PDFs to merge") },
              { icon: <Scissors />, label: 'extract', action: () => alert("Select PDF to extract") },
-             { icon: <Lock />, label: 'secure', action: () => alert("Securing document...") },
+             { icon: <Lock />, label: 'secure', action: () => setShowSignModal(true) },
              { icon: <PenTool />, label: 'fill', action: () => alert("Form filler tool") },
              { icon: <ScanSearch />, label: 'scan', action: () => navigate('/ocr') }
            ].map((item, i) => (
@@ -113,7 +119,39 @@ export default function PdfWorkspaceScreen() {
               </button>
            </div>
         </div>
+
+        <div className="mt-8 mb-4">
+           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-4">Recent Documents</h3>
+           <div className="space-y-3">
+              {recentPdfs.map(pdf => (
+                <div key={pdf.id} className="bg-white border border-slate-100 p-4 rounded-[28px] flex items-center justify-between hover:shadow-lg transition-all cursor-pointer group">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center">
+                      <FileText className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-tight">{pdf.name}</h4>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{pdf.size} • {pdf.date}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="p-2 text-slate-300 hover:text-blue-500 transition-colors"><Download className="w-4 h-4" /></button>
+                    <button className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </div>
+              ))}
+           </div>
+        </div>
       </div>
+
+      <SignatureModal 
+        isOpen={showSignModal}
+        onClose={() => setShowSignModal(false)}
+        onSave={(dataUrl) => {
+          alert("Digital signature saved to vault. You can now apply it to your PDF documents.");
+          setShowSignModal(false);
+        }}
+      />
     </Layout>
   );
 }
