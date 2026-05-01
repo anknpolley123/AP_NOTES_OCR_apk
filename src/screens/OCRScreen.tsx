@@ -572,12 +572,22 @@ export default function OCRScreen() {
       )}
 
       {error && (
-        <div className="mt-6 p-5 bg-red-500/10 border border-red-500/20 text-red-500 rounded-[24px] flex items-center gap-4">
-          <X className="w-6 h-6 flex-shrink-0" />
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">Scanner Error</p>
-            <p className="text-sm font-medium">{error}</p>
+        <div className="mt-6 p-5 bg-red-500/10 border border-red-500/20 text-red-500 rounded-[24px] flex flex-col items-center gap-4">
+          <div className="flex items-center gap-4 w-full">
+            <X className="w-6 h-6 flex-shrink-0" />
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">Scanner Error</p>
+              <p className="text-sm font-medium">{error}</p>
+            </div>
           </div>
+          {error.includes("denied") && !capturedImage && (
+            <button 
+              onClick={() => { setError(null); startCamera(); }}
+              className="w-full bg-red-500 text-white py-3 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-600 transition-all flex items-center justify-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" /> Retry Camera
+            </button>
+          )}
         </div>
       )}
 
