@@ -49,10 +49,11 @@ export default function PermissionOnboarding({ onComplete }: { onComplete: () =>
     const currentStep = steps[step];
     
     try {
-      if (currentStep.id === 'camera') {
-        await navigator.mediaDevices.getUserMedia({ video: true });
-      } else if (currentStep.id === 'mic') {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (currentStep.id === 'camera' || currentStep.id === 'mic') {
+        const constraints = currentStep.id === 'camera' ? { video: true } : { audio: true };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        // CRITICAL: Stop tracks immediately to release hardware
+        stream.getTracks().forEach(track => track.stop());
       } else if (currentStep.id === 'notifications') {
         if ('Notification' in window) {
           await Notification.requestPermission();
@@ -60,6 +61,7 @@ export default function PermissionOnboarding({ onComplete }: { onComplete: () =>
       }
     } catch (e) {
       console.warn("Permission denied or cancelled:", e);
+      // Optional: Inform user that some features might be limited
     }
 
     if (step < steps.length - 1) {

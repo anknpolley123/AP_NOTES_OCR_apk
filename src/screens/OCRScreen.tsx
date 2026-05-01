@@ -99,17 +99,43 @@ export default function OCRScreen() {
   };
 
   const startCamera = async () => {
+    setError(null);
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
-      });
+      // First try with environment (back) camera
+      const constraints = { 
+        video: { 
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        } 
+      };
+      
+      let mediaStream: MediaStream;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        console.warn("Back camera failed, falling back to basic video", err);
+        // Fallback to any camera if environment fails
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
     } catch (err) {
       console.error("Camera access denied:", err);
-      setError("Camera access denied. Try uploading a file instead.");
+      if (err instanceof Error) {
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          setError("Camera permission denied. Please allow camera access in your browser settings.");
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          setError("No camera found on this device.");
+        } else {
+          setError(`Camera Error: ${err.message}. Try uploading a file instead.`);
+        }
+      } else {
+        setError("Camera access could not be established.");
+      }
     }
   };
 
@@ -580,7 +606,7 @@ export default function OCRScreen() {
               <p className="text-sm font-medium">{error}</p>
             </div>
           </div>
-          {error.includes("denied") && !capturedImage && (
+          {(error.includes("denied") || error.includes("not allowed")) && !capturedImage && (
             <button 
               onClick={() => { setError(null); startCamera(); }}
               className="w-full bg-red-500 text-white py-3 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-600 transition-all flex items-center justify-center gap-2"
